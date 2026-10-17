@@ -212,9 +212,11 @@
 
   const paintLightbox = (dialog, photo, image, video) => {
     const isVideo = photo.dataset.mediaKind === "video";
+    const chrome = dialog.querySelector("[data-lightbox-chrome]");
     const bar = dialog.querySelector("[data-lightbox-zoom-bar]");
     dialog.querySelector("[data-lightbox-title]").textContent = photo.dataset.photoTitle;
     dialog.querySelector("[data-lightbox-meta]").textContent = photo.dataset.photoMeta;
+    if (chrome) chrome.hidden = isVideo;
     if (bar) bar.hidden = isVideo;
     resetLightboxView();
     if (isVideo) {
