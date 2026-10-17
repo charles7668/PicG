@@ -311,7 +311,7 @@
       return;
     }
 
-    if (event.target.closest("[data-lightbox-zoom-bar]")) return;
+    if (event.target.closest("[data-lightbox-chrome], [data-lightbox-zoom-bar]")) return;
 
     if (event.target.closest("[data-lightbox-close]") || event.target === dialog) {
       closeLightbox();
