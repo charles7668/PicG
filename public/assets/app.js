@@ -13,12 +13,17 @@
     }
   };
 
+  const retryThumbnail = (image) => {
+    if (!image?.isConnected || !image.dataset.thumbnailSrc) return;
+    requestGeneratedThumbnail(image);
+  };
+
   const cancelThumbnailWork = () => {
     thumbnailWait.length = 0;
     thumbnailAbort.abort();
     thumbnailAbort = new AbortController();
-    document.querySelectorAll("img").forEach((image) => {
-      if (!image.complete) image.removeAttribute("src");
+    document.querySelectorAll("img[data-thumbnail-src]").forEach((image) => {
+      delete image.dataset.thumbnailLoading;
     });
   };
 
@@ -39,13 +44,16 @@
           if (!image.isConnected) return;
           delete image.dataset.thumbnailSrc;
           delete image.dataset.thumbnailLoading;
+          thumbnailObserver?.unobserve(image);
           image.hidden = false;
           image.src = generatedSource;
           image.classList.add("is-loaded");
         })
         .catch((error) => {
-          if (error?.name === "AbortError") return;
           delete image.dataset.thumbnailLoading;
+          if (!image.isConnected || !image.dataset.thumbnailSrc) return;
+          if (error?.name === "AbortError") return;
+          window.setTimeout(() => retryThumbnail(image), 1200);
         })
         .finally(() => {
           thumbnailActive -= 1;
@@ -59,7 +67,6 @@
     ? new IntersectionObserver((entries) => {
         entries.forEach((entry) => {
           if (!entry.isIntersecting) return;
-          thumbnailObserver.unobserve(entry.target);
           requestGeneratedThumbnail(entry.target);
         });
       }, { rootMargin: "300px" })
@@ -236,6 +243,7 @@
     }
     resetLightboxView();
     dialog?.close();
+    prepareThumbnails();
   };
 
   const showMediaAt = (index) => {
@@ -247,7 +255,6 @@
     const image = dialog.querySelector("[data-lightbox-image]");
     const video = dialog.querySelector("[data-lightbox-video]");
     const request = ++lightboxRequest;
-    cancelThumbnailWork();
     dialog.dataset.lightboxIndex = String(next);
     const showNav = items.length > 1;
     dialog.querySelector("[data-lightbox-prev]").hidden = !showNav;
@@ -355,7 +362,6 @@
   }, { passive: false, capture: true });
 
   document.addEventListener("pointerdown", (event) => {
-    if (event.target.closest("a.folder-card, .breadcrumbs a[hx-get]")) cancelThumbnailWork();
     const dialog = lightboxDialog();
     if (!dialog?.open || lightboxZoom <= 1) return;
     if (!event.target.closest("[data-lightbox-image]")) return;
@@ -385,5 +391,9 @@
   document.addEventListener("htmx:afterSwap", (event) => {
     prepareThumbnails(event.target);
     window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) prepareThumbnails();
   });
 })();

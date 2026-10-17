@@ -151,7 +151,8 @@ func routesWithStorage(root, configPath, databasePath, thumbnailDir string, clea
 		thumbnailPath, err := thumbnailQueue.GetOrCreate(r.Context(), thumbnail.Request{
 			Kind: kind, Identity: identity, SourcePath: input, Info: info,
 		}, func(output string) error {
-			if kind != "video" {
+			const maxGoImageBytes = 6 << 20
+			if kind != "video" && info.Size() <= maxGoImageBytes {
 				if imageErr := thumbnail.RenderImage(input, output); imageErr == nil {
 					return nil
 				}
