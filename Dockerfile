@@ -13,13 +13,11 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -o /out/picg \
     .
 
-FROM debian:bookworm-slim AS runtime
+FROM alpine:3.24 AS runtime
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates ffmpeg curl \
-    && rm -rf /var/lib/apt/lists/* \
-    && groupadd --system --gid 10001 picg \
-    && useradd --system --uid 10001 --gid picg --home-dir /app --no-create-home picg \
+RUN apk add --no-cache ca-certificates ffmpeg \
+    && addgroup -S -g 10001 picg \
+    && adduser -S -D -H -u 10001 -G picg -h /app picg \
     && mkdir -p /app \
     && chown picg:picg /app
 
@@ -36,7 +34,7 @@ ENV PORT=8080 \
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-    CMD curl --fail --silent http://127.0.0.1:8080/health || exit 1
+    CMD wget -q -O /dev/null http://127.0.0.1:8080/health || exit 1
 
 USER picg
 
