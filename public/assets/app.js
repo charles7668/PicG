@@ -51,6 +51,7 @@
 
   const lightboxDialog = () => document.querySelector("[data-lightbox]");
   const mediaItems = () => [...document.querySelectorAll("[data-photo-src]")];
+  let lightboxRequest = 0;
 
   const stopLightboxVideo = (dialog) => {
     const video = dialog?.querySelector("[data-lightbox-video]");
@@ -58,9 +59,18 @@
     if (video) video.removeAttribute("src");
   };
 
+  const clearLightboxImage = (image) => {
+    if (!image) return;
+    image.hidden = true;
+    image.removeAttribute("src");
+    image.alt = "";
+  };
+
   const closeLightbox = () => {
+    lightboxRequest += 1;
     const dialog = lightboxDialog();
     stopLightboxVideo(dialog);
+    clearLightboxImage(dialog?.querySelector("[data-lightbox-image]"));
     dialog?.close();
   };
 
@@ -73,19 +83,10 @@
     const image = dialog.querySelector("[data-lightbox-image]");
     const video = dialog.querySelector("[data-lightbox-video]");
     const isVideo = photo.dataset.mediaKind === "video";
-    video.pause();
-    if (isVideo) {
-      image.removeAttribute("src");
-      image.hidden = true;
-      video.hidden = false;
-      video.src = photo.dataset.photoSrc;
-    } else {
-      video.removeAttribute("src");
-      video.hidden = true;
-      image.hidden = false;
-      image.src = photo.dataset.photoSrc;
-      image.alt = photo.dataset.photoTitle;
-    }
+    const request = ++lightboxRequest;
+    stopLightboxVideo(dialog);
+    video.hidden = true;
+    clearLightboxImage(image);
     dialog.querySelector("[data-lightbox-title]").textContent = photo.dataset.photoTitle;
     dialog.querySelector("[data-lightbox-meta]").textContent = photo.dataset.photoMeta;
     dialog.dataset.lightboxIndex = String(next);
@@ -93,7 +94,21 @@
     dialog.querySelector("[data-lightbox-prev]").hidden = !showNav;
     dialog.querySelector("[data-lightbox-next]").hidden = !showNav;
     if (dialog.isConnected && !dialog.open) dialog.showModal();
-    if (isVideo) video.play().catch(() => {});
+    if (isVideo) {
+      video.hidden = false;
+      video.src = photo.dataset.photoSrc;
+      video.play().catch(() => {});
+      return;
+    }
+    const reveal = () => {
+      if (request !== lightboxRequest) return;
+      image.hidden = false;
+    };
+    image.alt = photo.dataset.photoTitle;
+    image.addEventListener("load", reveal, { once: true });
+    image.addEventListener("error", reveal, { once: true });
+    image.src = photo.dataset.photoSrc;
+    if (image.complete) reveal();
   };
 
   const stepLightbox = (delta) => {
