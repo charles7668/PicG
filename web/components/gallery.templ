@@ -130,7 +130,7 @@ templ ThumbnailGrid(data gallery.PageData) {
 							if photo.Kind == "image" {
 								<img src={ photo.URL } data-thumbnail-src={ photo.ThumbnailURL } alt={ photo.Name } loading="lazy" decoding="async" data-media-thumbnail={ photo.Kind } data-thumbnail/>
 							} else {
-								<img src={ photo.ThumbnailURL } alt={ photo.Name } loading="lazy" decoding="async" data-media-thumbnail={ photo.Kind } data-thumbnail/>
+								<img data-thumbnail-src={ photo.ThumbnailURL } alt={ photo.Name } decoding="async" data-media-thumbnail={ photo.Kind } data-thumbnail/>
 							}
 							if photo.Kind == "video" {
 								<span class="video-badge">▶</span>

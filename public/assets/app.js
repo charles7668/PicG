@@ -2,24 +2,26 @@
   const root = document.documentElement;
   const savedTheme = localStorage.getItem("picg-theme");
 
+  let thumbnailAbort = new AbortController();
+
   const requestGeneratedThumbnail = (image) => {
     const generatedSource = image.dataset.thumbnailSrc;
     if (!generatedSource || image.dataset.thumbnailLoading === "true") return;
     image.dataset.thumbnailLoading = "true";
-    const generated = new Image();
-    generated.decoding = "async";
-    generated.onload = () => {
-      if (!image.isConnected) return;
-      delete image.dataset.thumbnailSrc;
-      delete image.dataset.thumbnailLoading;
-      image.hidden = false;
-      image.src = generatedSource;
-      image.classList.add("is-loaded");
-    };
-    generated.onerror = () => {
-      delete image.dataset.thumbnailLoading;
-    };
-    generated.src = generatedSource;
+    fetch(generatedSource, { signal: thumbnailAbort.signal })
+      .then((response) => {
+        if (!response.ok) throw new Error("thumbnail");
+        if (!image.isConnected) return;
+        delete image.dataset.thumbnailSrc;
+        delete image.dataset.thumbnailLoading;
+        image.hidden = false;
+        image.src = generatedSource;
+        image.classList.add("is-loaded");
+      })
+      .catch((error) => {
+        if (error?.name === "AbortError") return;
+        delete image.dataset.thumbnailLoading;
+      });
   };
 
   const thumbnailObserver = "IntersectionObserver" in window
@@ -112,6 +114,8 @@
   }, true);
 
   document.addEventListener("htmx:afterSwap", (event) => {
+    thumbnailAbort.abort();
+    thumbnailAbort = new AbortController();
     prepareThumbnails(event.target);
     window.scrollTo({ top: 0, behavior: "smooth" });
   });

@@ -56,54 +56,104 @@ func pathHash(value string) string {
 	return hex.EncodeToString(digest[:])
 }
 
-// GetOrCreate returns the persistent thumbnail mapped to a logical gallery
-// path. The full digest and the original path are both stored: the digest picks
-// a compact filename, while the path proves identity if two hashes collide.
-func (s *Store) GetOrCreate(ctx context.Context, request Request, generate func(string) error) (string, error) {
+func prepareRequest(request Request) (Request, string, error) {
 	if request.Info == nil || !request.Info.Mode().IsRegular() {
-		return "", errors.New("thumbnail source is not a regular file")
+		return Request{}, "", errors.New("thumbnail source is not a regular file")
 	}
 	if request.Kind != "image" && request.Kind != "video" && request.Kind != "cover" {
-		return "", errors.New("invalid thumbnail kind")
+		return Request{}, "", errors.New("invalid thumbnail kind")
 	}
 	request.Identity = filepath.ToSlash(filepath.Clean(request.Identity))
 	if request.Identity == "." {
 		request.Identity = ""
 	}
+	return request, request.Kind + "\x00" + request.Identity, nil
+}
+
+func (s *Store) digestFor(request Request) (string, error) {
 	digest := s.hash(request.Kind + "\x00" + request.Identity)
 	if len(digest) < 16 {
 		return "", errors.New("thumbnail hash is too short")
 	}
+	return digest, nil
+}
 
+func freshThumbnail(item mapping, request Request, dir string) (string, bool) {
+	output := filepath.Join(dir, item.FileName)
+	if item.SourceFilePath != request.SourcePath || item.SourceSize != request.Info.Size() ||
+		item.SourceMTimeNS != request.Info.ModTime().UnixNano() {
+		return output, false
+	}
+	info, err := os.Stat(output)
+	if err != nil || !info.Mode().IsRegular() || info.Size() == 0 {
+		return output, false
+	}
+	return output, true
+}
+
+// Lookup returns a cached thumbnail without generating a new one.
+func (s *Store) Lookup(ctx context.Context, request Request) (string, bool, error) {
+	request, _, err := prepareRequest(request)
+	if err != nil {
+		return "", false, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	item, found, err := s.find(ctx, request.Kind, request.Identity)
+	if err != nil || !found {
+		return "", false, err
+	}
+	output, ok := freshThumbnail(item, request, s.dir)
+	if !ok {
+		return "", false, nil
+	}
+	_, _ = s.db.ExecContext(ctx, `UPDATE thumbnail_mappings SET last_access_at=? WHERE id=?`, s.now().Unix(), item.ID)
+	return output, true, nil
+}
 
+// GetOrCreate returns the persistent thumbnail mapped to a logical gallery
+// path. The full digest and the original path are both stored: the digest picks
+// a compact filename, while the path proves identity if two hashes collide.
+func (s *Store) GetOrCreate(ctx context.Context, request Request, generate func(string) error) (string, error) {
+	request, _, err := prepareRequest(request)
+	if err != nil {
+		return "", err
+	}
+	digest, err := s.digestFor(request)
+	if err != nil {
+		return "", err
+	}
+
+	s.mu.Lock()
 	item, found, err := s.find(ctx, request.Kind, request.Identity)
 	if err != nil {
+		s.mu.Unlock()
 		return "", err
 	}
 	now := s.now().Unix()
 	if found {
-		output := filepath.Join(s.dir, item.FileName)
-		if item.SourceFilePath == request.SourcePath && item.SourceSize == request.Info.Size() &&
-			item.SourceMTimeNS == request.Info.ModTime().UnixNano() {
-			if info, statErr := os.Stat(output); statErr == nil && info.Mode().IsRegular() && info.Size() > 0 {
-				_, _ = s.db.ExecContext(ctx, `UPDATE thumbnail_mappings SET last_access_at=? WHERE id=?`, now, item.ID)
-				return output, nil
-			}
+		output, ok := freshThumbnail(item, request, s.dir)
+		if ok {
+			_, _ = s.db.ExecContext(ctx, `UPDATE thumbnail_mappings SET last_access_at=? WHERE id=?`, now, item.ID)
+			s.mu.Unlock()
+			return output, nil
 		}
+		s.mu.Unlock()
 		if err := s.render(output, generate); err != nil {
 			return "", err
 		}
+		s.mu.Lock()
 		_, err = s.db.ExecContext(ctx, `
 UPDATE thumbnail_mappings
 SET source_file_path=?, source_hash=?, source_size=?, source_mtime_ns=?, updated_at=?, last_access_at=?
 WHERE id=?`, request.SourcePath, digest, request.Info.Size(), request.Info.ModTime().UnixNano(), now, now, item.ID)
+		s.mu.Unlock()
 		return output, err
 	}
 
 	fileName, err := s.allocateFileName(ctx, digest, request.Kind, request.Identity)
 	if err != nil {
+		s.mu.Unlock()
 		return "", err
 	}
 	result, err := s.db.ExecContext(ctx, `
@@ -112,12 +162,16 @@ INSERT INTO thumbnail_mappings
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, request.Kind, request.Identity, request.SourcePath, digest, fileName,
 		request.Info.Size(), request.Info.ModTime().UnixNano(), now, now, now)
 	if err != nil {
+		s.mu.Unlock()
 		return "", fmt.Errorf("reserve thumbnail mapping: %w", err)
 	}
 	id, _ := result.LastInsertId()
 	output := filepath.Join(s.dir, fileName)
+	s.mu.Unlock()
 	if err := s.render(output, generate); err != nil {
+		s.mu.Lock()
 		_, _ = s.db.ExecContext(ctx, `DELETE FROM thumbnail_mappings WHERE id=?`, id)
+		s.mu.Unlock()
 		return "", err
 	}
 	return output, nil

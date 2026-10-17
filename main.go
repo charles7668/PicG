@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"embed"
+	"errors"
 	"io/fs"
 	"log"
 	"net/http"
@@ -82,24 +83,30 @@ func routesWithStorage(root, configPath, databasePath, thumbnailDir string, clea
 	if err != nil {
 		panic(err)
 	}
+	thumbnailQueue := thumbnail.NewQueue(thumbnailStore)
 	ffmpeg := video.New(func() string { return settingsStore.Get().EffectiveFFmpegPath() })
 	assets, err := fs.Sub(publicFiles, "public")
 	if err != nil {
 		panic(err)
 	}
 	mux.Handle("GET /assets/", http.StripPrefix("/", http.FileServer(http.FS(assets))))
+	browse := func(r *http.Request) gallery.PageData {
+		data := browser.Browse(r.URL.Query().Get("path"), r.URL.Query().Get("q"))
+		thumbnailQueue.Focus(data.CurrentPath)
+		return data
+	}
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			http.NotFound(w, r)
 			return
 		}
-		render(w, r, components.Page(browser.Browse(r.URL.Query().Get("path"), r.URL.Query().Get("q"))))
+		render(w, r, components.Page(browse(r)))
 	})
 	mux.HandleFunc("GET /gallery", func(w http.ResponseWriter, r *http.Request) {
-		render(w, r, components.GalleryContent(browser.Browse(r.URL.Query().Get("path"), r.URL.Query().Get("q"))))
+		render(w, r, components.GalleryContent(browse(r)))
 	})
 	mux.HandleFunc("GET /gallery/thumbnails", func(w http.ResponseWriter, r *http.Request) {
-		render(w, r, components.ThumbnailGrid(browser.Browse(r.URL.Query().Get("path"), r.URL.Query().Get("q"))))
+		render(w, r, components.ThumbnailGrid(browse(r)))
 	})
 	mux.HandleFunc("GET /media/{path...}", func(w http.ResponseWriter, r *http.Request) {
 		file, info, err := browser.Open(r.PathValue("path"))
@@ -141,7 +148,7 @@ func routesWithStorage(root, configPath, databasePath, thumbnailDir string, clea
 			http.NotFound(w, r)
 			return
 		}
-		thumbnailPath, err := thumbnailStore.GetOrCreate(r.Context(), thumbnail.Request{
+		thumbnailPath, err := thumbnailQueue.GetOrCreate(r.Context(), thumbnail.Request{
 			Kind: kind, Identity: identity, SourcePath: input, Info: info,
 		}, func(output string) error {
 			if kind != "video" {
@@ -149,9 +156,12 @@ func routesWithStorage(root, configPath, databasePath, thumbnailDir string, clea
 					return nil
 				}
 			}
-			return ffmpeg.RenderThumbnail(r.Context(), input, output, kind == "video")
+			return ffmpeg.RenderThumbnail(context.Background(), input, output, kind == "video")
 		})
 		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return
+			}
 			log.Printf("thumbnail %q: %v", input, err)
 			http.Error(w, "unable to create thumbnail", http.StatusServiceUnavailable)
 			return
