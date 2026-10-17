@@ -128,7 +128,7 @@ templ ThumbnailGrid(data gallery.PageData) {
 					for _, directory := range data.Directories {
 						<a class="folder-card" href={ templ.URL(directory.Href) } hx-get={ galleryFragmentURL(directory.Href) } hx-target="#gallery-content" hx-push-url={ directory.Href }>
 							<div class="folder-cover">
-								<span class="folder-placeholder">▰</span><img data-thumbnail-src={ directory.CoverURL } alt="" decoding="async" data-folder-cover data-thumbnail/><span class="folder-tab"></span>
+								<span class="folder-placeholder">▰</span><img src={ directory.CoverURL } alt="" decoding="async" loading="lazy" data-folder-cover data-thumbnail/><span class="folder-tab"></span>
 							</div>
 							<div class="folder-info"><strong>{ directory.Name }</strong><span>{ directorySummary(directory) }</span></div>
 						</a>
@@ -147,11 +147,7 @@ templ ThumbnailGrid(data gallery.PageData) {
 								<strong>{ photo.Name }</strong>
 								<small>{ photo.Modified } · { photo.Size }</small>
 							</span>
-							if photo.Kind == "image" {
-								<img src={ photo.URL } data-thumbnail-src={ photo.ThumbnailURL } alt={ photo.Name } loading="lazy" decoding="async" data-media-thumbnail={ photo.Kind } data-thumbnail/>
-							} else {
-								<img data-thumbnail-src={ photo.ThumbnailURL } alt={ photo.Name } decoding="async" data-media-thumbnail={ photo.Kind } data-thumbnail/>
-							}
+							<img src={ photo.ThumbnailURL } alt={ photo.Name } decoding="async" loading="lazy" data-media-thumbnail={ photo.Kind } data-thumbnail/>
 							if photo.Kind == "video" {
 								<span class="video-badge">▶</span>
 							}

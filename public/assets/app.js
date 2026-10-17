@@ -4,85 +4,9 @@
   const videoVolumeKey = "picg-video-volume";
   const videoMutedKey = "picg-video-muted";
 
-  let thumbnailAbort = new AbortController();
-  let thumbnailActive = 0;
-  const thumbnailWait = [];
-  const thumbnailLimit = 3;
-
-  const pumpThumbnails = () => {
-    while (thumbnailActive < thumbnailLimit && thumbnailWait.length > 0) {
-      thumbnailWait.shift()();
-    }
-  };
-
-  const retryThumbnail = (image) => {
-    if (!image?.isConnected || !image.dataset.thumbnailSrc) return;
-    requestGeneratedThumbnail(image);
-  };
-
-  const cancelThumbnailWork = () => {
-    thumbnailWait.length = 0;
-    thumbnailAbort.abort();
-    thumbnailAbort = new AbortController();
-    document.querySelectorAll("img[data-thumbnail-src]").forEach((image) => {
-      delete image.dataset.thumbnailLoading;
-    });
-  };
-
-  const requestGeneratedThumbnail = (image) => {
-    const generatedSource = image.dataset.thumbnailSrc;
-    if (!generatedSource || image.dataset.thumbnailLoading === "true") return;
-    image.dataset.thumbnailLoading = "true";
-    thumbnailWait.push(() => {
-      if (!image.isConnected || image.dataset.thumbnailSrc !== generatedSource) {
-        delete image.dataset.thumbnailLoading;
-        pumpThumbnails();
-        return;
-      }
-      thumbnailActive += 1;
-      fetch(generatedSource, { signal: thumbnailAbort.signal, priority: "low" })
-        .then((response) => {
-          if (!response.ok) throw new Error("thumbnail");
-          if (!image.isConnected) return;
-          delete image.dataset.thumbnailSrc;
-          delete image.dataset.thumbnailLoading;
-          thumbnailObserver?.unobserve(image);
-          image.hidden = false;
-          image.src = generatedSource;
-          image.classList.add("is-loaded");
-        })
-        .catch((error) => {
-          delete image.dataset.thumbnailLoading;
-          if (!image.isConnected || !image.dataset.thumbnailSrc) return;
-          if (error?.name === "AbortError") return;
-          window.setTimeout(() => retryThumbnail(image), 1200);
-        })
-        .finally(() => {
-          thumbnailActive -= 1;
-          pumpThumbnails();
-        });
-    });
-    pumpThumbnails();
-  };
-
-  const thumbnailObserver = "IntersectionObserver" in window
-    ? new IntersectionObserver((entries) => {
-        entries.forEach((entry) => {
-          if (!entry.isIntersecting) return;
-          requestGeneratedThumbnail(entry.target);
-        });
-      }, { rootMargin: "300px" })
-    : null;
-
   const prepareThumbnails = (scope = document) => {
     scope.querySelectorAll?.("img[data-thumbnail]").forEach((image) => {
       if (image.complete && image.naturalWidth > 0) image.classList.add("is-loaded");
-      if (!image.dataset.thumbnailSrc) return;
-      if (thumbnailObserver) {
-        thumbnailObserver.observe(image);
-      } else {
-        requestGeneratedThumbnail(image);
-      }
     });
   };
 
@@ -357,9 +281,20 @@
   });
 
   document.addEventListener("error", (event) => {
-    if (event.target.dataset?.thumbnailSrc) return;
-    if (event.target.matches?.("[data-folder-cover]")) event.target.hidden = true;
-    if (event.target.dataset?.mediaThumbnail === "video") event.target.hidden = true;
+    const image = event.target;
+    if (!image?.matches?.("img[data-thumbnail]")) return;
+    const tries = Number(image.dataset.thumbnailTries || "0");
+    if (tries >= 4) {
+      if (image.matches("[data-folder-cover]") || image.dataset.mediaThumbnail === "video") image.hidden = true;
+      return;
+    }
+    image.dataset.thumbnailTries = String(tries + 1);
+    const url = image.getAttribute("src");
+    if (!url) return;
+    window.setTimeout(() => {
+      if (!image.isConnected) return;
+      image.src = url.replace(/&retry=\d+$/, "") + "&retry=" + image.dataset.thumbnailTries;
+    }, 1200);
   }, true);
 
   document.addEventListener("load", (event) => {
@@ -415,8 +350,6 @@
     lightboxPanStart = null;
     lightboxDialog()?.querySelector("[data-lightbox-stage]")?.classList.remove("is-panning");
   });
-
-  document.addEventListener("htmx:beforeRequest", cancelThumbnailWork);
 
   document.addEventListener("htmx:afterSwap", (event) => {
     prepareThumbnails(event.target);

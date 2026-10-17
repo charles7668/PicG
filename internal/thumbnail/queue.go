@@ -33,10 +33,21 @@ type Queue struct {
 	closed  bool
 }
 
+const defaultWorkers = 4
+
 func NewQueue(store *Store) *Queue {
+	return newQueue(store, defaultWorkers)
+}
+
+func newQueue(store *Store, workers int) *Queue {
+	if workers < 1 {
+		workers = 1
+	}
 	queue := &Queue{store: store, pending: make(map[string]*job)}
 	queue.cond = sync.NewCond(&queue.mu)
-	go queue.loop()
+	for range workers {
+		go queue.loop()
+	}
 	return queue
 }
 
@@ -76,7 +87,7 @@ func (q *Queue) GetOrCreate(ctx context.Context, request Request, generate func(
 			generate: generate,
 			waiters:  []chan jobResult{wait},
 		}
-		q.cond.Signal()
+		q.cond.Broadcast()
 	}
 	q.mu.Unlock()
 

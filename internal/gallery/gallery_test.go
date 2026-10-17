@@ -31,14 +31,14 @@ func TestBrowseUsesDirectoryStructure(t *testing.T) {
 	}
 	var foundVideo bool
 	for _, media := range data.Photos {
-		if media.Name == "片段" && media.Kind == "video" && strings.HasPrefix(media.ThumbnailURL, "/thumbnail?") {
+		if media.Name == "片段" && media.Kind == "video" && strings.HasPrefix(media.ThumbnailURL, "/thumbnail?") && strings.Contains(media.ThumbnailURL, "v=") {
 			foundVideo = true
 		}
 	}
 	if !foundVideo {
 		t.Fatalf("expected video media with deferred thumbnail: %#v", data.Photos)
 	}
-	if data.Directories[0].CoverURL == "" || data.Directories[0].CoverOriginalURL == "" {
+	if data.Directories[0].CoverURL == "" || data.Directories[0].CoverOriginalURL == "" || !strings.Contains(data.Directories[0].CoverURL, "v=") {
 		t.Fatal("expected generated and original directory cover URLs")
 	}
 

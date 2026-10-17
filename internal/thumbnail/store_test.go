@@ -99,6 +99,41 @@ func TestStorePreventsFullHashCollision(t *testing.T) {
 	}
 }
 
+func TestCachedFileSkipsStaleStamp(t *testing.T) {
+	work := t.TempDir()
+	db, err := database.Open(filepath.Join(work, "app.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store, err := NewStore(db, filepath.Join(work, "thumbnails"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(work, "photo.jpg")
+	if err := os.WriteFile(source, []byte("source"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	info, _ := os.Stat(source)
+	path, err := store.GetOrCreate(context.Background(), Request{
+		Kind: "image", Identity: "album/photo.jpg", SourcePath: source, Info: info,
+	}, writeThumbnail("thumb"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cached, ok, err := store.CachedFile(context.Background(), "image", "album/photo.jpg", info.ModTime().UnixNano(), info.Size(), true)
+	if err != nil || !ok || cached != path {
+		t.Fatalf("expected cached thumbnail, got path=%q ok=%v err=%v", cached, ok, err)
+	}
+	if _, ok, err := store.CachedFile(context.Background(), "image", "album/photo.jpg", info.ModTime().UnixNano()+1, info.Size(), true); err != nil || ok {
+		t.Fatalf("stale stamp should miss cache, ok=%v err=%v", ok, err)
+	}
+	if cached, ok, err := store.CachedFile(context.Background(), "image", "album/photo.jpg", 0, 0, false); err != nil || !ok || cached != path {
+		t.Fatalf("cover-style lookup should ignore stamp, path=%q ok=%v err=%v", cached, ok, err)
+	}
+}
+
 func TestCleanupRemovesMissingSourcesAndOrphans(t *testing.T) {
 	work := t.TempDir()
 	db, err := database.Open(filepath.Join(work, "app.sqlite"))

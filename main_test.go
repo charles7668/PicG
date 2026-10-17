@@ -80,6 +80,30 @@ func TestRoutesBrowseAndServePictures(t *testing.T) {
 	}
 }
 
+func TestThumbnailServesImmutableCache(t *testing.T) {
+	root := t.TempDir()
+	writeTestJPEG(t, filepath.Join(root, "sunset.jpg"))
+	handler := routesWithRoot(root)
+
+	first := httptest.NewRecorder()
+	handler.ServeHTTP(first, httptest.NewRequest(http.MethodGet, "/thumbnail?kind=image&path=sunset.jpg", nil))
+	if first.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", first.Code)
+	}
+
+	second := httptest.NewRecorder()
+	handler.ServeHTTP(second, httptest.NewRequest(http.MethodGet, "/thumbnail?kind=image&path=sunset.jpg", nil))
+	if second.Code != http.StatusOK {
+		t.Fatalf("expected cached status 200, got %d", second.Code)
+	}
+	if cache := second.Header().Get("Cache-Control"); !strings.Contains(cache, "immutable") {
+		t.Fatalf("expected immutable cache header, got %q", cache)
+	}
+	if contentType := second.Header().Get("Content-Type"); !strings.Contains(contentType, "image/jpeg") {
+		t.Fatalf("expected jpeg, got %q", contentType)
+	}
+}
+
 func writeTestJPEG(t *testing.T, path string) {
 	t.Helper()
 	file, err := os.Create(path)

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -133,16 +134,26 @@ func routesWithStorage(root, configPath, databasePath, thumbnailDir string, clea
 		if kind == "" {
 			kind = r.URL.Query().Get("kind")
 		}
-		var identity, input string
-		var info os.FileInfo
-		var err error
-		if kind == "cover" {
-			identity, input, info, err = browser.ResolveCover(r.URL.Query().Get("path"))
-		} else if kind == "image" || kind == "video" {
-			identity, input, info, err = browser.ResolveMedia(r.URL.Query().Get("path"))
-		} else {
+		if kind != "cover" && kind != "image" && kind != "video" {
 			http.Error(w, "invalid thumbnail kind", http.StatusBadRequest)
 			return
+		}
+		identity, err := browser.ThumbnailKey(kind, r.URL.Query().Get("path"))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		mtimeNS, size, hasStamp := parseThumbVersion(r.URL.Query().Get("v"))
+		if cached, ok, cacheErr := thumbnailStore.CachedFile(r.Context(), kind, identity, mtimeNS, size, hasStamp && kind != "cover"); cacheErr == nil && ok {
+			serveThumbnailFile(w, r, cached)
+			return
+		}
+		var input string
+		var info os.FileInfo
+		if kind == "cover" {
+			identity, input, info, err = browser.ResolveCover(r.URL.Query().Get("path"))
+		} else {
+			identity, input, info, err = browser.ResolveMedia(r.URL.Query().Get("path"))
 		}
 		if err != nil {
 			http.NotFound(w, r)
@@ -165,22 +176,11 @@ func routesWithStorage(root, configPath, databasePath, thumbnailDir string, clea
 				return
 			}
 			log.Printf("thumbnail %q: %v", input, err)
+			w.Header().Set("Cache-Control", "no-store")
 			http.Error(w, "unable to create thumbnail", http.StatusServiceUnavailable)
 			return
 		}
-		file, err := os.Open(thumbnailPath)
-		if err != nil {
-			http.NotFound(w, r)
-			return
-		}
-		defer file.Close()
-		thumbnailInfo, err := file.Stat()
-		if err != nil {
-			http.NotFound(w, r)
-			return
-		}
-		w.Header().Set("Cache-Control", "private, max-age=86400")
-		http.ServeContent(w, r, thumbnailInfo.Name(), thumbnailInfo.ModTime(), file)
+		serveThumbnailFile(w, r, thumbnailPath)
 	}
 	mux.HandleFunc("GET /thumbnail", func(w http.ResponseWriter, r *http.Request) { serveThumbnail(w, r, "") })
 	// Compatibility endpoints for bookmarks and pages cached before the unified
@@ -281,6 +281,46 @@ func requestSort(r *http.Request) string {
 		return cookie.Value
 	}
 	return ""
+}
+
+func parseThumbVersion(v string) (mtimeNS, size int64, ok bool) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0, 0, false
+	}
+	if mtimeStr, sizeStr, found := strings.Cut(v, "-"); found {
+		var err error
+		mtimeNS, err = strconv.ParseInt(mtimeStr, 10, 64)
+		if err != nil {
+			return 0, 0, false
+		}
+		size, err = strconv.ParseInt(sizeStr, 10, 64)
+		if err != nil || size < 0 {
+			return 0, 0, false
+		}
+		return mtimeNS, size, true
+	}
+	mtimeNS, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
+		return 0, 0, false
+	}
+	return mtimeNS, 0, true
+}
+
+func serveThumbnailFile(w http.ResponseWriter, r *http.Request, thumbnailPath string) {
+	file, err := os.Open(thumbnailPath)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	http.ServeContent(w, r, info.Name(), info.ModTime(), file)
 }
 
 func isVideoFilename(path string) bool {

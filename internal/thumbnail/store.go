@@ -56,17 +56,27 @@ func pathHash(value string) string {
 	return hex.EncodeToString(digest[:])
 }
 
+func normalizeKey(kind, identity string) (string, string, error) {
+	if kind != "image" && kind != "video" && kind != "cover" {
+		return "", "", errors.New("invalid thumbnail kind")
+	}
+	identity = filepath.ToSlash(filepath.Clean(identity))
+	if identity == "." {
+		identity = ""
+	}
+	return kind, identity, nil
+}
+
 func prepareRequest(request Request) (Request, string, error) {
 	if request.Info == nil || !request.Info.Mode().IsRegular() {
 		return Request{}, "", errors.New("thumbnail source is not a regular file")
 	}
-	if request.Kind != "image" && request.Kind != "video" && request.Kind != "cover" {
-		return Request{}, "", errors.New("invalid thumbnail kind")
+	kind, identity, err := normalizeKey(request.Kind, request.Identity)
+	if err != nil {
+		return Request{}, "", err
 	}
-	request.Identity = filepath.ToSlash(filepath.Clean(request.Identity))
-	if request.Identity == "." {
-		request.Identity = ""
-	}
+	request.Kind = kind
+	request.Identity = identity
 	return request, request.Kind + "\x00" + request.Identity, nil
 }
 
@@ -107,7 +117,30 @@ func (s *Store) Lookup(ctx context.Context, request Request) (string, bool, erro
 	if !ok {
 		return "", false, nil
 	}
-	_, _ = s.db.ExecContext(ctx, `UPDATE thumbnail_mappings SET last_access_at=? WHERE id=?`, s.now().Unix(), item.ID)
+	return output, true, nil
+}
+
+// CachedFile returns a persisted JPEG when the mapping and file exist. When
+// matchStamp is true, the stored source size and mtime must match.
+func (s *Store) CachedFile(ctx context.Context, kind, identity string, mtimeNS, size int64, matchStamp bool) (string, bool, error) {
+	kind, identity, err := normalizeKey(kind, identity)
+	if err != nil {
+		return "", false, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, found, err := s.find(ctx, kind, identity)
+	if err != nil || !found {
+		return "", false, err
+	}
+	if matchStamp && (item.SourceSize != size || item.SourceMTimeNS != mtimeNS) {
+		return "", false, nil
+	}
+	output := filepath.Join(s.dir, item.FileName)
+	info, err := os.Stat(output)
+	if err != nil || !info.Mode().IsRegular() || info.Size() == 0 {
+		return "", false, nil
+	}
 	return output, true, nil
 }
 
@@ -134,7 +167,6 @@ func (s *Store) GetOrCreate(ctx context.Context, request Request, generate func(
 	if found {
 		output, ok := freshThumbnail(item, request, s.dir)
 		if ok {
-			_, _ = s.db.ExecContext(ctx, `UPDATE thumbnail_mappings SET last_access_at=? WHERE id=?`, now, item.ID)
 			s.mu.Unlock()
 			return output, nil
 		}

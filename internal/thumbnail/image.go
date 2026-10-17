@@ -3,13 +3,18 @@ package thumbnail
 import (
 	"image"
 	"image/color"
+	"image/draw"
 	_ "image/gif"
 	"image/jpeg"
 	_ "image/png"
 	"os"
+
+	xdraw "golang.org/x/image/draw"
 )
 
 const maxThumbnailDimension = 640
+
+var thumbnailBackground = color.RGBA{R: 30, G: 34, B: 40, A: 255}
 
 // RenderImage handles formats supported by Go's standard image decoders.
 // Callers can fall back to FFmpeg for formats such as AVIF and WebP.
@@ -34,35 +39,15 @@ func RenderImage(input, output string) error {
 		height = max(1, int(float64(height)*scale))
 	}
 	destination := image.NewRGBA(image.Rect(0, 0, width, height))
-	for y := range height {
-		for x := range width {
-			sx := bounds.Min.X + x*bounds.Dx()/width
-			sy := bounds.Min.Y + y*bounds.Dy()/height
-			value := source.At(sx, sy)
-			// JPEG has no alpha. Composite transparent pixels over the same dark
-			// neutral used by the gallery cards instead of producing black fringes.
-			destination.Set(x, y, composite(value, color.RGBA{R: 30, G: 34, B: 40, A: 255}))
-		}
-	}
+	draw.Draw(destination, destination.Bounds(), &image.Uniform{C: thumbnailBackground}, image.Point{}, draw.Src)
+	xdraw.ApproxBiLinear.Scale(destination, destination.Bounds(), source, bounds, xdraw.Over, nil)
 	out, err := os.Create(output)
 	if err != nil {
 		return err
 	}
-	if err := jpeg.Encode(out, destination, &jpeg.Options{Quality: 84}); err != nil {
+	if err := jpeg.Encode(out, destination, &jpeg.Options{Quality: 78}); err != nil {
 		out.Close()
 		return err
 	}
 	return out.Close()
-}
-
-func composite(source color.Color, background color.RGBA) color.RGBA {
-	r, g, b, a := source.RGBA()
-	alpha := uint64(a)
-	inverse := uint64(0xffff) - alpha
-	return color.RGBA{
-		R: uint8((uint64(r) + uint64(background.R)*0x101*inverse/0xffff) >> 8),
-		G: uint8((uint64(g) + uint64(background.G)*0x101*inverse/0xffff) >> 8),
-		B: uint8((uint64(b) + uint64(background.B)*0x101*inverse/0xffff) >> 8),
-		A: 255,
-	}
 }

@@ -45,8 +45,8 @@ func (f *FFmpeg) Status(ctx context.Context) Status {
 func (f *FFmpeg) RenderThumbnail(ctx context.Context, input, output string, isVideo bool) error {
 	runCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	baseArgs := []string{"-hide_banner", "-loglevel", "error", "-nostdin"}
-	outputArgs := []string{"-frames:v", "1", "-vf", "scale=640:-2:force_original_aspect_ratio=decrease", "-q:v", "4", "-y", output}
+	baseArgs := []string{"-hide_banner", "-loglevel", "error", "-nostdin", "-threads", "1", "-an"}
+	outputArgs := []string{"-frames:v", "1", "-vf", "scale=640:-2:force_original_aspect_ratio=decrease", "-q:v", "5", "-y", output}
 	attempts := [][]string{append(append(append([]string{}, baseArgs...), "-i", input), outputArgs...)}
 	if isVideo {
 		attempts = append([][]string{append(append(append([]string{}, baseArgs...), "-ss", "1", "-i", input), outputArgs...)}, attempts...)

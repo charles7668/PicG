@@ -147,7 +147,7 @@ func (b *Browser) Browse(rawPath, query, sortKey string) PageData {
 				Name:             entry.Name(),
 				Path:             entryPath,
 				Href:             galleryHref(entryPath, ""),
-				CoverURL:         coverURL(entryPath),
+				CoverURL:         coverURL(entryPath, entryInfo.ModTime()),
 				CoverOriginalURL: coverOriginalURL(entryPath),
 				Modified:         formatDate(entryInfo.ModTime()),
 				modifiedAt:       entryInfo.ModTime(),
@@ -166,7 +166,7 @@ func (b *Browser) Browse(rawPath, query, sortKey string) PageData {
 			Name:         strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name())),
 			Path:         entryPath,
 			URL:          mediaURL(entryPath),
-			ThumbnailURL: thumbnailURL(entryPath, kind),
+			ThumbnailURL: thumbnailURL(entryPath, kind, entryInfo),
 			Kind:         kind,
 			Modified:     formatDate(entryInfo.ModTime()),
 			Size:         formatBytes(entryInfo.Size()),
@@ -249,6 +249,24 @@ func (b *Browser) ResolveVideo(rawPath string) (string, os.FileInfo, error) {
 		return "", nil, ErrInvalidPath
 	}
 	return absolute, info, nil
+}
+
+func (b *Browser) ThumbnailKey(kind, rawPath string) (string, error) {
+	rel, err := cleanRelativePath(rawPath)
+	if err != nil {
+		return "", err
+	}
+	switch kind {
+	case "cover":
+		return rel, nil
+	case "image", "video":
+		if rel == "" || !isMedia(rel) {
+			return "", ErrInvalidPath
+		}
+		return rel, nil
+	default:
+		return "", ErrInvalidPath
+	}
 }
 
 func (b *Browser) ResolveMedia(rawPath string) (string, string, os.FileInfo, error) {
@@ -449,16 +467,24 @@ func mediaURL(rel string) string {
 	return "/media/" + strings.Join(parts, "/")
 }
 
-func coverURL(rel string) string {
-	return "/thumbnail?" + url.Values{"kind": []string{"cover"}, "path": []string{rel}}.Encode()
+func coverURL(rel string, modified time.Time) string {
+	values := url.Values{"kind": []string{"cover"}, "path": []string{rel}}
+	if !modified.IsZero() {
+		values.Set("v", fmt.Sprintf("%d", modified.UnixNano()))
+	}
+	return "/thumbnail?" + values.Encode()
 }
 
 func coverOriginalURL(rel string) string {
 	return "/cover-original?" + url.Values{"path": []string{rel}}.Encode()
 }
 
-func thumbnailURL(rel, kind string) string {
-	return "/thumbnail?" + url.Values{"kind": []string{kind}, "path": []string{rel}}.Encode()
+func thumbnailURL(rel, kind string, info os.FileInfo) string {
+	values := url.Values{"kind": []string{kind}, "path": []string{rel}}
+	if info != nil {
+		values.Set("v", fmt.Sprintf("%d-%d", info.ModTime().UnixNano(), info.Size()))
+	}
+	return "/thumbnail?" + values.Encode()
 }
 
 func formatDate(value time.Time) string {

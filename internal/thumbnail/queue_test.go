@@ -13,7 +13,7 @@ import (
 
 func TestQueuePrefersFocusedFolder(t *testing.T) {
 	store := testStore(t)
-	queue := NewQueue(store)
+	queue := newQueue(store, 1)
 	defer queue.Close()
 
 	started := make(chan string, 8)
