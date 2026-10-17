@@ -135,7 +135,7 @@ button { cursor: pointer; }
   .lightbox-prev { left: 8px; }
   .lightbox-next { right: 8px; }
 }
-.lightbox-chrome { grid-area: 1 / 1; z-index: 3; align-self: end; justify-self: center; display: flex; flex-direction: column; align-items: center; gap: 8px; margin: 0 0 16px; padding: 10px 18px 12px; border-radius: 16px; color: rgba(255,255,255,.92); background: rgba(12,16,20,.45); box-shadow: 0 4px 18px rgba(0,0,0,.25); opacity: 0; pointer-events: auto; transition: opacity .16s ease 2s; }
+.lightbox-chrome { grid-area: 1 / 1; z-index: 3; align-self: end; justify-self: center; display: flex; flex-direction: column; align-items: center; gap: 8px; margin: 0 0 16px; padding: 10px 18px 12px; border-radius: 16px; color: rgba(255,255,255,.92); background: rgba(12,16,20,.45); box-shadow: 0 4px 18px rgba(0,0,0,.25); opacity: 0; pointer-events: auto; transition: opacity .16s ease .5s; }
 .lightbox-chrome:hover, .lightbox-chrome:focus-within { opacity: 1; transition-delay: 0s; }
 .lightbox-zoom { display: flex; align-items: center; justify-content: center; gap: 12px; font-size: 11px; }
 .lightbox-zoom input[type="range"] { width: min(280px, 52vw); accent-color: var(--accent); }
