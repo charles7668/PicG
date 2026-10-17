@@ -1,6 +1,8 @@
 (() => {
   const root = document.documentElement;
   const savedTheme = localStorage.getItem("picg-theme");
+  const videoVolumeKey = "picg-video-volume";
+  const videoMutedKey = "picg-video-muted";
 
   let thumbnailAbort = new AbortController();
   let thumbnailActive = 0;
@@ -210,6 +212,17 @@
     applyLightboxView();
   };
 
+  const applySavedVideoVolume = (video) => {
+    const savedVolume = Number(localStorage.getItem(videoVolumeKey));
+    if (Number.isFinite(savedVolume)) video.volume = Math.min(1, Math.max(0, savedVolume));
+    video.muted = localStorage.getItem(videoMutedKey) === "1";
+  };
+
+  const persistVideoVolume = (video) => {
+    localStorage.setItem(videoVolumeKey, String(video.volume));
+    localStorage.setItem(videoMutedKey, video.muted ? "1" : "0");
+  };
+
   const paintLightbox = (dialog, photo, image, video) => {
     const isVideo = photo.dataset.mediaKind === "video";
     const chrome = dialog.querySelector("[data-lightbox-chrome]");
@@ -222,6 +235,7 @@
     if (isVideo) {
       clearLightboxImage(image);
       video.hidden = false;
+      applySavedVideoVolume(video);
       video.src = photo.dataset.photoSrc;
       video.play().catch(() => {});
       return;
@@ -346,6 +360,11 @@
 
   document.addEventListener("load", (event) => {
     if (event.target.matches?.("img[data-thumbnail]")) event.target.classList.add("is-loaded");
+  }, true);
+
+  document.addEventListener("volumechange", (event) => {
+    if (!event.target.matches?.("[data-lightbox-video]")) return;
+    persistVideoVolume(event.target);
   }, true);
 
   document.addEventListener("input", (event) => {
