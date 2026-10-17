@@ -135,6 +135,7 @@ button { cursor: pointer; }
 .lightbox-caption { display: flex; align-items: center; justify-content: center; gap: 12px; min-height: 58px; }
 .lightbox-caption strong { font-size: 12px; font-weight: 500; }
 .lightbox-caption span { color: #89919a; font-size: 10px; }
+#gallery-content.htmx-request { opacity: .55; pointer-events: none; transition: opacity .12s; }
 .htmx-request .section-block { opacity: .45; transition: opacity .12s; }
 
 .settings-shell { width: min(820px, calc(100% - 32px)); margin: 0 auto; padding: 52px 0 80px; }

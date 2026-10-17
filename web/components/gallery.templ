@@ -52,7 +52,7 @@ templ Page(data gallery.PageData) {
 }
 
 templ GalleryContent(data gallery.PageData) {
-	<div class="content-shell">
+	<div class="content-shell" hx-indicator="#gallery-content" hx-sync="this:abort">
 		<nav class="breadcrumbs" aria-label="目前目錄">
 			for index, crumb := range data.Breadcrumbs {
 				if index > 0 {

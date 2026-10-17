@@ -3,25 +3,56 @@
   const savedTheme = localStorage.getItem("picg-theme");
 
   let thumbnailAbort = new AbortController();
+  let thumbnailActive = 0;
+  const thumbnailWait = [];
+  const thumbnailLimit = 3;
+
+  const pumpThumbnails = () => {
+    while (thumbnailActive < thumbnailLimit && thumbnailWait.length > 0) {
+      thumbnailWait.shift()();
+    }
+  };
+
+  const cancelThumbnailWork = () => {
+    thumbnailWait.length = 0;
+    thumbnailAbort.abort();
+    thumbnailAbort = new AbortController();
+    document.querySelectorAll("img").forEach((image) => {
+      if (!image.complete) image.removeAttribute("src");
+    });
+  };
 
   const requestGeneratedThumbnail = (image) => {
     const generatedSource = image.dataset.thumbnailSrc;
     if (!generatedSource || image.dataset.thumbnailLoading === "true") return;
     image.dataset.thumbnailLoading = "true";
-    fetch(generatedSource, { signal: thumbnailAbort.signal })
-      .then((response) => {
-        if (!response.ok) throw new Error("thumbnail");
-        if (!image.isConnected) return;
-        delete image.dataset.thumbnailSrc;
+    thumbnailWait.push(() => {
+      if (!image.isConnected || image.dataset.thumbnailSrc !== generatedSource) {
         delete image.dataset.thumbnailLoading;
-        image.hidden = false;
-        image.src = generatedSource;
-        image.classList.add("is-loaded");
-      })
-      .catch((error) => {
-        if (error?.name === "AbortError") return;
-        delete image.dataset.thumbnailLoading;
-      });
+        pumpThumbnails();
+        return;
+      }
+      thumbnailActive += 1;
+      fetch(generatedSource, { signal: thumbnailAbort.signal, priority: "low" })
+        .then((response) => {
+          if (!response.ok) throw new Error("thumbnail");
+          if (!image.isConnected) return;
+          delete image.dataset.thumbnailSrc;
+          delete image.dataset.thumbnailLoading;
+          image.hidden = false;
+          image.src = generatedSource;
+          image.classList.add("is-loaded");
+        })
+        .catch((error) => {
+          if (error?.name === "AbortError") return;
+          delete image.dataset.thumbnailLoading;
+        })
+        .finally(() => {
+          thumbnailActive -= 1;
+          pumpThumbnails();
+        });
+    });
+    pumpThumbnails();
   };
 
   const thumbnailObserver = "IntersectionObserver" in window
@@ -182,9 +213,13 @@
     if (event.target.matches?.("img[data-thumbnail]")) event.target.classList.add("is-loaded");
   }, true);
 
+  document.addEventListener("pointerdown", (event) => {
+    if (event.target.closest("a.folder-card, .breadcrumbs a[hx-get]")) cancelThumbnailWork();
+  }, true);
+
+  document.addEventListener("htmx:beforeRequest", cancelThumbnailWork);
+
   document.addEventListener("htmx:afterSwap", (event) => {
-    thumbnailAbort.abort();
-    thumbnailAbort = new AbortController();
     prepareThumbnails(event.target);
     window.scrollTo({ top: 0, behavior: "smooth" });
   });
