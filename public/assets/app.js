@@ -83,7 +83,14 @@
   const lightboxDialog = () => document.querySelector("[data-lightbox]");
   const mediaItems = () => [...document.querySelectorAll("[data-photo-src]")];
   const lightboxPreloads = new Map();
+  const lightboxZoomMin = 1;
+  const lightboxZoomMax = 5;
   let lightboxRequest = 0;
+  let lightboxZoom = 1;
+  let lightboxPanX = 0;
+  let lightboxPanY = 0;
+  let lightboxPanning = false;
+  let lightboxPanStart = null;
 
   const stopLightboxVideo = (dialog) => {
     const video = dialog?.querySelector("[data-lightbox-video]");
@@ -143,10 +150,66 @@
     if (loader.complete) afterLoad();
   };
 
+  const lightboxParts = (dialog) => ({
+    image: dialog.querySelector("[data-lightbox-image]"),
+    video: dialog.querySelector("[data-lightbox-video]"),
+    stage: dialog.querySelector("[data-lightbox-stage]"),
+    slider: dialog.querySelector("[data-lightbox-zoom]"),
+    label: dialog.querySelector("[data-lightbox-zoom-label]"),
+    bar: dialog.querySelector("[data-lightbox-zoom-bar]"),
+  });
+
+  const applyLightboxView = () => {
+    const dialog = lightboxDialog();
+    if (!dialog) return;
+    const { image, slider, label, stage } = lightboxParts(dialog);
+    if (image) image.style.transform = `translate(${lightboxPanX}px, ${lightboxPanY}px) scale(${lightboxZoom})`;
+    const percent = Math.round(lightboxZoom * 100);
+    if (slider && Number(slider.value) !== percent) slider.value = String(percent);
+    if (label) label.textContent = `${percent}%`;
+    stage?.classList.toggle("is-zoomed", lightboxZoom > 1.001);
+    if (lightboxZoom <= 1) stage?.classList.remove("is-panning");
+  };
+
+  const resetLightboxView = () => {
+    lightboxZoom = 1;
+    lightboxPanX = 0;
+    lightboxPanY = 0;
+    lightboxPanning = false;
+    lightboxPanStart = null;
+    applyLightboxView();
+  };
+
+  const setLightboxZoom = (value, clientX, clientY) => {
+    const dialog = lightboxDialog();
+    if (!dialog?.open) return;
+    const { image, stage } = lightboxParts(dialog);
+    if (!image || image.hidden) return;
+    const next = Math.min(lightboxZoomMax, Math.max(lightboxZoomMin, value));
+    if (clientX != null && clientY != null && stage && lightboxZoom > 0) {
+      const rect = stage.getBoundingClientRect();
+      const cx = clientX - (rect.left + rect.width / 2);
+      const cy = clientY - (rect.top + rect.height / 2);
+      const ratio = next / lightboxZoom;
+      lightboxPanX = cx - (cx - lightboxPanX) * ratio;
+      lightboxPanY = cy - (cy - lightboxPanY) * ratio;
+    }
+    lightboxZoom = next;
+    if (lightboxZoom <= 1.001) {
+      lightboxZoom = 1;
+      lightboxPanX = 0;
+      lightboxPanY = 0;
+    }
+    applyLightboxView();
+  };
+
   const paintLightbox = (dialog, photo, image, video) => {
     const isVideo = photo.dataset.mediaKind === "video";
+    const bar = dialog.querySelector("[data-lightbox-zoom-bar]");
     dialog.querySelector("[data-lightbox-title]").textContent = photo.dataset.photoTitle;
     dialog.querySelector("[data-lightbox-meta]").textContent = photo.dataset.photoMeta;
+    if (bar) bar.hidden = isVideo;
+    resetLightboxView();
     if (isVideo) {
       clearLightboxImage(image);
       video.hidden = false;
@@ -171,6 +234,7 @@
       dialog.querySelector("[data-lightbox-title]").textContent = "";
       dialog.querySelector("[data-lightbox-meta]").textContent = "";
     }
+    resetLightboxView();
     dialog?.close();
   };
 
@@ -240,6 +304,8 @@
       return;
     }
 
+    if (event.target.closest("[data-lightbox-zoom-bar]")) return;
+
     if (event.target.closest("[data-lightbox-close]") || event.target === dialog) {
       closeLightbox();
     }
@@ -273,9 +339,46 @@
     if (event.target.matches?.("img[data-thumbnail]")) event.target.classList.add("is-loaded");
   }, true);
 
+  document.addEventListener("input", (event) => {
+    if (!event.target.matches?.("[data-lightbox-zoom]")) return;
+    setLightboxZoom(Number(event.target.value) / 100);
+  });
+
+  document.addEventListener("wheel", (event) => {
+    const dialog = lightboxDialog();
+    if (!dialog?.open) return;
+    event.preventDefault();
+    const image = dialog.querySelector("[data-lightbox-image]");
+    if (!image || image.hidden) return;
+    const factor = event.deltaY < 0 ? 1.12 : 1 / 1.12;
+    setLightboxZoom(lightboxZoom * factor, event.clientX, event.clientY);
+  }, { passive: false, capture: true });
+
   document.addEventListener("pointerdown", (event) => {
     if (event.target.closest("a.folder-card, .breadcrumbs a[hx-get]")) cancelThumbnailWork();
+    const dialog = lightboxDialog();
+    if (!dialog?.open || lightboxZoom <= 1) return;
+    if (!event.target.closest("[data-lightbox-image]")) return;
+    event.preventDefault();
+    lightboxPanning = true;
+    lightboxPanStart = { x: event.clientX, y: event.clientY, panX: lightboxPanX, panY: lightboxPanY };
+    dialog.querySelector("[data-lightbox-stage]")?.classList.add("is-panning");
+    event.target.setPointerCapture?.(event.pointerId);
   }, true);
+
+  document.addEventListener("pointermove", (event) => {
+    if (!lightboxPanning || !lightboxPanStart) return;
+    lightboxPanX = lightboxPanStart.panX + (event.clientX - lightboxPanStart.x);
+    lightboxPanY = lightboxPanStart.panY + (event.clientY - lightboxPanStart.y);
+    applyLightboxView();
+  });
+
+  document.addEventListener("pointerup", () => {
+    if (!lightboxPanning) return;
+    lightboxPanning = false;
+    lightboxPanStart = null;
+    lightboxDialog()?.querySelector("[data-lightbox-stage]")?.classList.remove("is-panning");
+  });
 
   document.addEventListener("htmx:beforeRequest", cancelThumbnailWork);
 

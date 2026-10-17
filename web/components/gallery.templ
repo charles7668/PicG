@@ -41,9 +41,16 @@ templ Page(data gallery.PageData) {
 				<button class="lightbox-close" type="button" data-lightbox-close aria-label="關閉">×</button>
 				<button class="lightbox-nav lightbox-prev" type="button" data-lightbox-prev aria-label="上一張">‹</button>
 				<button class="lightbox-nav lightbox-next" type="button" data-lightbox-next aria-label="下一張">›</button>
-				<img data-lightbox-image alt=""/>
-				<video data-lightbox-video controls playsinline hidden></video>
+				<div class="lightbox-stage" data-lightbox-stage>
+					<img data-lightbox-image alt="" draggable="false"/>
+					<video data-lightbox-video controls playsinline hidden></video>
+				</div>
 				<div class="lightbox-caption"><strong data-lightbox-title></strong><span data-lightbox-meta></span></div>
+				<div class="lightbox-zoom" data-lightbox-zoom-bar>
+					<span>縮放</span>
+					<input type="range" min="100" max="500" value="100" step="1" data-lightbox-zoom aria-label="縮放比例"/>
+					<span data-lightbox-zoom-label>100%</span>
+				</div>
 			</dialog>
 		</body>
 	</html>
