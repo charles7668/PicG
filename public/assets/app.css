@@ -41,9 +41,8 @@ button { cursor: pointer; }
 .brand-mark i:nth-child(2) { height: 72%; }
 .brand-mark i:nth-child(3) { height: 52%; }
 .main-nav { align-self: stretch; display: flex; align-items: stretch; gap: 4px; }
-.main-nav a, .main-nav button { display: flex; align-items: center; padding: 0 17px; border: 0; color: #aeb6be; background: transparent; font-size: 13px; }
+.main-nav a { display: flex; align-items: center; padding: 0 17px; border: 0; color: #aeb6be; background: transparent; font-size: 13px; }
 .main-nav .active { color: #fff; box-shadow: inset 0 -3px var(--accent); }
-.main-nav button:disabled { cursor: default; opacity: .55; }
 .top-actions { display: flex; align-items: center; justify-content: end; gap: 10px; }
 .readonly-badge { padding: 4px 8px; border: 1px solid rgba(255,255,255,.18); border-radius: 4px; color: #aeb6be; font-size: 10px; letter-spacing: .5px; }
 .icon-button, .tool-button { display: grid; place-items: center; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); }
