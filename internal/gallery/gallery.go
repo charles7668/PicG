@@ -245,7 +245,7 @@ func (b *Browser) findCover(directory string) (string, error) {
 		return "", ErrInvalidPath
 	}
 	absolute := filepath.Join(b.root, filepath.FromSlash(rel))
-	var cover string
+	var imageCover, videoCover string
 	visited := 0
 	_ = filepath.WalkDir(absolute, func(filePath string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -261,19 +261,30 @@ func (b *Browser) findCover(directory string) (string, error) {
 			}
 			return nil
 		}
-		if !entry.IsDir() && isImage(entry.Name()) {
-			rel, err := filepath.Rel(b.root, filePath)
-			if err == nil {
-				cover = filepath.ToSlash(rel)
-			}
+		if entry.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(b.root, filePath)
+		if err != nil {
+			return nil
+		}
+		slash := filepath.ToSlash(rel)
+		if isImage(entry.Name()) {
+			imageCover = slash
 			return fs.SkipAll
+		}
+		if videoCover == "" && isVideo(entry.Name()) {
+			videoCover = slash
 		}
 		return nil
 	})
-	if cover == "" {
-		return "", fs.ErrNotExist
+	if imageCover != "" {
+		return imageCover, nil
 	}
-	return cover, nil
+	if videoCover != "" {
+		return videoCover, nil
+	}
+	return "", fs.ErrNotExist
 }
 
 func cleanRelativePath(raw string) (string, error) {

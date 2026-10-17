@@ -152,12 +152,13 @@ func routesWithStorage(root, configPath, databasePath, thumbnailDir string, clea
 			Kind: kind, Identity: identity, SourcePath: input, Info: info,
 		}, func(output string) error {
 			const maxGoImageBytes = 6 << 20
-			if kind != "video" && info.Size() <= maxGoImageBytes {
+			videoSource := kind == "video" || isVideoFilename(input)
+			if !videoSource && info.Size() <= maxGoImageBytes {
 				if imageErr := thumbnail.RenderImage(input, output); imageErr == nil {
 					return nil
 				}
 			}
-			return ffmpeg.RenderThumbnail(context.Background(), input, output, kind == "video")
+			return ffmpeg.RenderThumbnail(context.Background(), input, output, videoSource)
 		})
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
@@ -269,6 +270,15 @@ func renderStatus(w http.ResponseWriter, r *http.Request, status int, c templ.Co
 	}
 	if err := c.Render(r.Context(), w); err != nil {
 		log.Printf("render: %v", err)
+	}
+}
+
+func isVideoFilename(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".avi", ".m4v", ".mkv", ".mov", ".mp4", ".mpeg", ".mpg", ".webm":
+		return true
+	default:
+		return false
 	}
 }
 

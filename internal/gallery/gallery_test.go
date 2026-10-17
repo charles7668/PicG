@@ -47,6 +47,33 @@ func TestBrowseUsesDirectoryStructure(t *testing.T) {
 	}
 }
 
+func TestFindCoverFallsBackToNestedVideo(t *testing.T) {
+	root := t.TempDir()
+	mustMkdir(t, filepath.Join(root, "clips", "day1"))
+	mustWrite(t, filepath.Join(root, "clips", "day1", "shot.mp4"))
+	cover, err := NewBrowser(root).findCover("clips")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cover != "clips/day1/shot.mp4" {
+		t.Fatalf("expected nested video cover, got %q", cover)
+	}
+}
+
+func TestFindCoverPrefersImageOverVideo(t *testing.T) {
+	root := t.TempDir()
+	mustMkdir(t, filepath.Join(root, "album"))
+	mustWrite(t, filepath.Join(root, "album", "clip.mp4"))
+	mustWrite(t, filepath.Join(root, "album", "photo.jpg"))
+	cover, err := NewBrowser(root).findCover("album")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cover != "album/photo.jpg" {
+		t.Fatalf("expected image cover, got %q", cover)
+	}
+}
+
 func TestBrowseRejectsTraversal(t *testing.T) {
 	data := NewBrowser(t.TempDir()).Browse("../secret", "")
 	if data.Error == "" {
