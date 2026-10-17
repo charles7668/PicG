@@ -1,0 +1,61 @@
+package components
+
+type SettingsData struct {
+	FFmpegPath      string
+	EffectivePath   string
+	Available       bool
+	Version         string
+	StatusError     string
+	SaveError       string
+	Saved           bool
+}
+
+templ SettingsPage(data SettingsData) {
+	<!doctype html>
+	<html lang="zh-Hant" data-theme="light">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<meta name="description" content="PicG 設定"/>
+			<title>PicG · 設定</title>
+			<link rel="preconnect" href="https://fonts.googleapis.com"/>
+			<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+			<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Noto+Sans+TC:wght@400;500;600&display=swap" rel="stylesheet"/>
+			<link rel="stylesheet" href="/assets/app.css"/>
+			<script src="/assets/app.js" defer></script>
+		</head>
+		<body>
+			<header class="topbar">
+				<a class="brand" href="/"><span class="brand-mark"><i></i><i></i><i></i></span><span>PicG</span></a>
+				<nav class="main-nav" aria-label="主要功能"><a href="/">圖庫</a><a class="active" href="/settings">設定</a></nav>
+				<div class="top-actions"><button class="icon-button" type="button" data-theme-toggle aria-label="切換深淺色">◐</button></div>
+			</header>
+			<main class="settings-shell">
+				<header class="settings-heading"><p>系統設定</p><h1>影片與 FFmpeg</h1><span>PicG 使用 FFmpeg 讀取影片並產生預覽縮圖。</span></header>
+				if data.Saved {
+					<div class="settings-notice success">設定已儲存。</div>
+				}
+				if data.SaveError != "" {
+					<div class="settings-notice error">{ data.SaveError }</div>
+				}
+				<section class="settings-card">
+					<div class="settings-card-copy"><h2>FFmpeg 執行檔</h2><p>留空時使用系統 PATH 中的 <code>ffmpeg</code>。自訂時請填寫執行檔的完整路徑，不要加入命令參數。</p></div>
+					<form method="post" action="/settings" class="settings-form">
+						<label for="ffmpeg-path">自訂路徑</label>
+						<div class="path-input"><input id="ffmpeg-path" name="ffmpeg_path" value={ data.FFmpegPath } placeholder="例如 /usr/local/bin/ffmpeg" spellcheck="false"/><button type="submit">儲存設定</button></div>
+						<p class="field-help">目前使用：<code>{ data.EffectivePath }</code></p>
+					</form>
+					<div class={ "ffmpeg-status", templ.KV("available", data.Available) }>
+						<span class="status-dot"></span><div>
+							if data.Available {
+								<strong>FFmpeg 可以使用</strong><p>{ data.Version }</p>
+							} else {
+								<strong>FFmpeg 無法使用</strong><p>{ data.StatusError }</p>
+							}
+						</div>
+					</div>
+				</section>
+			</main>
+		</body>
+	</html>
+}

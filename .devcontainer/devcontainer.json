@@ -1,0 +1,52 @@
+{
+  "name": "PicG Go Development",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "remoteUser": "vscode",
+  "mounts": [
+    "source=${localWorkspaceFolder}/pic,target=/app/pic,type=bind,consistency=cached",
+    "source=${localWorkspaceFolder}/.picg-data,target=/app,type=bind,consistency=cached"
+  ],
+  "forwardPorts": [
+    8080
+  ],
+  "portsAttributes": {
+    "8080": {
+      "label": "PicG Web App",
+      "onAutoForward": "notify"
+    }
+  },
+  "containerEnv": {
+    "PORT": "8080",
+    "PIC_DIR": "/app/pic",
+    "PICG_CONFIG": "/app/settings.json",
+    "PICG_DATABASE": "/app/app.sqlite",
+    "PICG_THUMBNAILS": "/app/thumbnails"
+  },
+  "postCreateCommand": "templ version && gopls version && go mod download",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "golang.Go",
+        "a-h.templ"
+      ],
+      "settings": {
+        "editor.formatOnSave": true,
+        "[go]": {
+          "editor.defaultFormatter": "golang.Go"
+        },
+        "[templ]": {
+          "editor.defaultFormatter": "a-h.templ"
+        },
+        "templ.executablePath": "/usr/local/bin/templ",
+        "templ.log": "/tmp/templ-lsp.log",
+        "templ.goplsLog": "/tmp/templ-gopls.log",
+        "go.toolsManagement.autoUpdate": true,
+        "go.testFlags": [
+          "-v"
+        ]
+      }
+    }
+  }
+}

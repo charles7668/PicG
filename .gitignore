@@ -1,0 +1,7 @@
+/bin/
+*.log
+.DS_Store
+/pic/*
+!/pic/.gitkeep
+/.picg-data/*
+!/.picg-data/.gitkeep

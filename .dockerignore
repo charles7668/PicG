@@ -1,0 +1,10 @@
+.git
+.gitignore
+.devcontainer
+.picg-data
+data
+pic
+bin
+coverage.out
+*.log
+docker-compose*.yml

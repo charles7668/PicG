@@ -1,0 +1,166 @@
+package components
+
+import (
+	"fmt"
+	"git.charleshnas.dscloud.me/charles7668/PicG/internal/gallery"
+)
+
+templ Page(data gallery.PageData) {
+	<!doctype html>
+	<html lang="zh-Hant" data-theme="light">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<meta name="description" content="PicG — 以檔案目錄為核心的唯讀相片庫。"/>
+			<title>PicG · { data.CurrentName }</title>
+			<link rel="preconnect" href="https://fonts.googleapis.com"/>
+			<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+			<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Noto+Sans+TC:wght@400;500;600&display=swap" rel="stylesheet"/>
+			<link rel="stylesheet" href="/assets/app.css"/>
+			<script src="https://unpkg.com/htmx.org@2.0.8" defer></script>
+			<script src="/assets/app.js" defer></script>
+		</head>
+		<body>
+			<header class="topbar">
+				<a class="brand" href="/" aria-label="PicG 首頁">
+					<span class="brand-mark"><i></i><i></i><i></i></span>
+					<span>PicG</span>
+				</a>
+				<nav class="main-nav" aria-label="主要功能">
+					<a class="active" href="/">圖庫</a>
+					<button type="button" disabled>時間軸</button>
+					<button type="button" disabled>地圖</button>
+					<a href="/settings">設定</a>
+				</nav>
+				<div class="top-actions">
+					<span class="readonly-badge">唯讀</span>
+					<a class="icon-button" href="/settings" aria-label="設定">⚙</a>
+					<button class="icon-button" type="button" data-theme-toggle aria-label="切換深淺色">◐</button>
+				</div>
+			</header>
+			<main id="gallery-content">@GalleryContent(data)</main>
+			<dialog class="lightbox" data-lightbox>
+				<button class="lightbox-close" type="button" data-lightbox-close aria-label="關閉">×</button>
+				<img data-lightbox-image alt=""/>
+				<video data-lightbox-video controls playsinline hidden></video>
+				<div class="lightbox-caption"><strong data-lightbox-title></strong><span data-lightbox-meta></span></div>
+			</dialog>
+		</body>
+	</html>
+}
+
+templ GalleryContent(data gallery.PageData) {
+	<div class="content-shell">
+		<nav class="breadcrumbs" aria-label="目前目錄">
+			for index, crumb := range data.Breadcrumbs {
+				if index > 0 {
+					<span>/</span>
+				}
+				<a href={ templ.URL(crumb.Href) } hx-get={ galleryFragmentURL(crumb.Href) } hx-target="#gallery-content" hx-push-url={ crumb.Href }>{ crumb.Name }</a>
+			}
+		</nav>
+		<section class="gallery-toolbar">
+			<div>
+				<h1>{ data.CurrentName }</h1>
+				<p>{ fmt.Sprintf("%d 個資料夾 · %d 個媒體", len(data.Directories), len(data.Photos)) }</p>
+			</div>
+			<div class="toolbar-actions">
+				<label class="search-box">
+					<span>⌕</span>
+					<input type="search" name="q" value={ data.Query } placeholder="搜尋目前目錄" hx-get="/gallery" hx-trigger="input changed delay:250ms, search" hx-target="#gallery-content" hx-include="#current-path"/>
+				</label>
+				<input id="current-path" type="hidden" name="path" value={ data.CurrentPath }/>
+				<button class="tool-button" type="button" data-view-toggle aria-label="切換相片大小">▦</button>
+			</div>
+		</section>
+		if data.Error != "" {
+			<section class="state-panel error-state">
+				<span class="state-icon">!</span>
+				<h2>{ data.Error }</h2>
+				if !data.RootAvailable {
+					<p>請將相片資料夾掛載至 <code>{ data.Root }</code>，或透過 <code>PIC_DIR</code> 指定路徑。</p>
+				}
+			</section>
+		} else if len(data.Directories) == 0 && len(data.Photos) == 0 {
+			<section class="state-panel">
+				if data.Query != "" {
+					<span class="state-icon folder-empty">⌕</span>
+					<h2>找不到符合的項目</h2>
+					<p>請嘗試不同的檔名或資料夾名稱。</p>
+				} else {
+					<span class="state-icon folder-empty">□</span>
+					<h2>這個資料夾是空的</h2>
+					<p>支援常見圖片，以及 MP4、MOV、MKV、WebM 等影片。</p>
+				}
+			</section>
+		} else {
+			@ThumbnailGrid(data)
+		}
+	</div>
+}
+
+templ ThumbnailGrid(data gallery.PageData) {
+	<div id="thumbnail-area" class="thumbnail-content">
+		if len(data.Directories) > 0 {
+			<section class="section-block">
+				<div class="section-heading"><h2>資料夾預覽</h2><span>{ fmt.Sprint(len(data.Directories)) }</span></div>
+				<div class="folder-grid">
+					for _, directory := range data.Directories {
+						<a class="folder-card" href={ templ.URL(directory.Href) } hx-get={ galleryFragmentURL(directory.Href) } hx-target="#gallery-content" hx-push-url={ directory.Href }>
+							<div class="folder-cover">
+								<span class="folder-placeholder">▰</span><img src={ directory.CoverOriginalURL } data-thumbnail-src={ directory.CoverURL } alt="" loading="lazy" decoding="async" data-folder-cover data-thumbnail/><span class="folder-tab"></span>
+							</div>
+							<div class="folder-info"><strong>{ directory.Name }</strong><span>{ directorySummary(directory) }</span></div>
+						</a>
+					}
+				</div>
+			</section>
+		}
+		if len(data.Photos) > 0 {
+			<section class="section-block photo-section">
+				<div class="section-heading"><h2>媒體預覽</h2><span>{ fmt.Sprint(len(data.Photos)) }</span></div>
+				<div class="photo-grid" data-photo-grid>
+					for _, photo := range data.Photos {
+						<button class="photo-card" type="button" data-photo-src={ photo.URL } data-photo-title={ photo.Name } data-photo-meta={ photo.Modified + " · " + photo.Size } data-media-kind={ photo.Kind }>
+							<span class="photo-placeholder">
+								<span>{ photoPlaceholderIcon(photo.Kind) }</span>
+								<strong>{ photo.Name }</strong>
+								<small>{ photo.Modified } · { photo.Size }</small>
+							</span>
+							if photo.Kind == "image" {
+								<img src={ photo.URL } data-thumbnail-src={ photo.ThumbnailURL } alt={ photo.Name } loading="lazy" decoding="async" data-media-thumbnail={ photo.Kind } data-thumbnail/>
+							} else {
+								<img src={ photo.ThumbnailURL } alt={ photo.Name } loading="lazy" decoding="async" data-media-thumbnail={ photo.Kind } data-thumbnail/>
+							}
+							if photo.Kind == "video" {
+								<span class="video-badge">▶</span>
+							}
+							<span class="photo-overlay"><strong>{ photo.Name }</strong><small>{ photo.Modified } · { photo.Size }</small></span>
+						</button>
+					}
+				</div>
+			</section>
+		}
+	</div>
+}
+
+func galleryFragmentURL(href string) string {
+	if href == "/" {
+		return "/gallery"
+	}
+	return "/gallery" + href[1:]
+}
+
+func directorySummary(directory gallery.Directory) string {
+	if directory.Modified == "—" {
+		return "資料夾"
+	}
+	return "更新於 " + directory.Modified
+}
+
+func photoPlaceholderIcon(kind string) string {
+	if kind == "video" {
+		return "▶"
+	}
+	return "▧"
+}
