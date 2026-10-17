@@ -4,11 +4,24 @@
   const videoVolumeKey = "picg-video-volume";
   const videoMutedKey = "picg-video-muted";
 
+  let thumbnailEpoch = 0;
+
   const prepareThumbnails = (scope = document) => {
     scope.querySelectorAll?.("img[data-thumbnail]").forEach((image) => {
       if (image.complete && image.naturalWidth > 0) image.classList.add("is-loaded");
     });
   };
+
+  const cancelThumbnailWork = () => {
+    thumbnailEpoch += 1;
+    document.querySelectorAll("img[data-thumbnail]").forEach((image) => {
+      if (image.complete && image.naturalWidth > 0) return;
+      image.dataset.thumbnailAborted = "true";
+      image.removeAttribute("src");
+    });
+  };
+
+  const isGalleryNavigation = (node) => node?.closest?.("a.folder-card, nav.breadcrumbs a[hx-get]");
 
   if (savedTheme) root.dataset.theme = savedTheme;
   prepareThumbnails();
@@ -263,6 +276,9 @@
   });
 
   document.addEventListener("keydown", (event) => {
+    if ((event.key === "Enter" || event.key === " ") && isGalleryNavigation(event.target)) {
+      cancelThumbnailWork();
+    }
     const dialog = lightboxDialog();
     if (!dialog?.open) return;
     if (event.key === "Escape") {
@@ -283,16 +299,18 @@
   document.addEventListener("error", (event) => {
     const image = event.target;
     if (!image?.matches?.("img[data-thumbnail]")) return;
+    if (image.dataset.thumbnailAborted === "true") return;
+    const url = image.getAttribute("src");
+    if (!url) return;
     const tries = Number(image.dataset.thumbnailTries || "0");
     if (tries >= 4) {
       if (image.matches("[data-folder-cover]") || image.dataset.mediaThumbnail === "video") image.hidden = true;
       return;
     }
     image.dataset.thumbnailTries = String(tries + 1);
-    const url = image.getAttribute("src");
-    if (!url) return;
+    const epoch = thumbnailEpoch;
     window.setTimeout(() => {
-      if (!image.isConnected) return;
+      if (epoch !== thumbnailEpoch || !image.isConnected || image.dataset.thumbnailAborted === "true") return;
       image.src = url.replace(/&retry=\d+$/, "") + "&retry=" + image.dataset.thumbnailTries;
     }, 1200);
   }, true);
@@ -327,6 +345,7 @@
   }, { passive: false, capture: true });
 
   document.addEventListener("pointerdown", (event) => {
+    if (isGalleryNavigation(event.target)) cancelThumbnailWork();
     const dialog = lightboxDialog();
     if (!dialog?.open || lightboxZoom <= 1) return;
     if (!event.target.closest("[data-lightbox-image]")) return;
@@ -350,6 +369,8 @@
     lightboxPanStart = null;
     lightboxDialog()?.querySelector("[data-lightbox-stage]")?.classList.remove("is-panning");
   });
+
+  document.addEventListener("htmx:beforeRequest", cancelThumbnailWork);
 
   document.addEventListener("htmx:afterSwap", (event) => {
     prepareThumbnails(event.target);

@@ -52,6 +52,7 @@ func TestRoutesBrowseAndServePictures(t *testing.T) {
 		{path: "/assets/app.css", status: http.StatusOK, want: ":root", contentType: "text/css"},
 		{path: "/assets/app.js", status: http.StatusOK, want: "localStorage", contentType: "text/javascript"},
 		{path: "/assets/app.js", status: http.StatusOK, want: "picg-video-volume", contentType: "text/javascript"},
+		{path: "/assets/app.js", status: http.StatusOK, want: "cancelThumbnailWork", contentType: "text/javascript"},
 		{path: "/missing", status: http.StatusNotFound, want: "page not found", contentType: "text/plain"},
 	}
 
