@@ -63,6 +63,9 @@ button { cursor: pointer; }
 .search-box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent); }
 .search-box input { width: 100%; border: 0; outline: 0; background: transparent; font-size: 12px; }
 .search-box input::placeholder { color: var(--muted); }
+.sort-box { display: flex; align-items: center; height: 36px; padding: 0 4px 0 10px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); }
+.sort-box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent); }
+.sort-box select { height: 100%; border: 0; outline: 0; background: transparent; color: var(--text); font-size: 12px; }
 .tool-button { width: 36px; height: 36px; color: var(--muted); font-size: 17px; }
 
 .section-block + .section-block { margin-top: 35px; }
@@ -184,7 +187,8 @@ button { cursor: pointer; }
   .content-shell { width: min(100% - 24px, 1480px); padding-top: 12px; }
   .gallery-toolbar { display: block; }
   .toolbar-actions { margin-top: 17px; }
-  .search-box { width: 100%; }
+  .search-box, .sort-box { width: 100%; }
+  .sort-box select { width: 100%; }
   .folder-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .folder-cover { height: 95px; }
   .folder-info { display: block; min-height: 48px; }

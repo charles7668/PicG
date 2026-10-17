@@ -41,6 +41,8 @@ type Directory struct {
 	PhotoCount       int
 	FolderCount      int
 	Modified         string
+	modifiedAt       time.Time
+	sizeBytes        int64
 }
 
 type Photo struct {
@@ -51,6 +53,8 @@ type Photo struct {
 	Kind         string
 	Modified     string
 	Size         string
+	modifiedAt   time.Time
+	sizeBytes    int64
 }
 
 type PageData struct {
@@ -59,11 +63,26 @@ type PageData struct {
 	CurrentName   string
 	ParentHref    string
 	Query         string
+	Sort          string
 	Breadcrumbs   []Breadcrumb
 	Directories   []Directory
 	Photos        []Photo
 	RootAvailable bool
 	Error         string
+}
+
+type SortOption struct {
+	Value string
+	Label string
+}
+
+var SortOptions = []SortOption{
+	{Value: "name", Label: "名稱 A → Z"},
+	{Value: "name-desc", Label: "名稱 Z → A"},
+	{Value: "date-desc", Label: "日期新到舊"},
+	{Value: "date", Label: "日期舊到新"},
+	{Value: "size-desc", Label: "檔案大到小"},
+	{Value: "size", Label: "檔案小到大"},
 }
 
 func NewBrowser(root string) *Browser {
@@ -77,9 +96,9 @@ func (b *Browser) Root() string {
 	return b.root
 }
 
-func (b *Browser) Browse(rawPath, query string) PageData {
+func (b *Browser) Browse(rawPath, query, sortKey string) PageData {
 	rel, err := cleanRelativePath(rawPath)
-	data := PageData{Root: b.root, CurrentPath: rel, Query: strings.TrimSpace(query)}
+	data := PageData{Root: b.root, CurrentPath: rel, Query: strings.TrimSpace(query), Sort: normalizeSort(sortKey)}
 	if err != nil {
 		data.Error = "無效的目錄路徑"
 		return data
@@ -131,6 +150,7 @@ func (b *Browser) Browse(rawPath, query string) PageData {
 				CoverURL:         coverURL(entryPath),
 				CoverOriginalURL: coverOriginalURL(entryPath),
 				Modified:         formatDate(entryInfo.ModTime()),
+				modifiedAt:       entryInfo.ModTime(),
 			})
 			continue
 		}
@@ -150,16 +170,52 @@ func (b *Browser) Browse(rawPath, query string) PageData {
 			Kind:         kind,
 			Modified:     formatDate(entryInfo.ModTime()),
 			Size:         formatBytes(entryInfo.Size()),
+			modifiedAt:   entryInfo.ModTime(),
+			sizeBytes:    entryInfo.Size(),
 		})
 	}
 
-	sort.Slice(data.Directories, func(i, j int) bool {
-		return strings.ToLower(data.Directories[i].Name) < strings.ToLower(data.Directories[j].Name)
+	sort.SliceStable(data.Directories, func(i, j int) bool {
+		return lessEntry(data.Sort, data.Directories[i].Name, data.Directories[j].Name, data.Directories[i].modifiedAt, data.Directories[j].modifiedAt, data.Directories[i].sizeBytes, data.Directories[j].sizeBytes)
 	})
-	sort.Slice(data.Photos, func(i, j int) bool {
-		return strings.ToLower(data.Photos[i].Name) < strings.ToLower(data.Photos[j].Name)
+	sort.SliceStable(data.Photos, func(i, j int) bool {
+		return lessEntry(data.Sort, data.Photos[i].Name, data.Photos[j].Name, data.Photos[i].modifiedAt, data.Photos[j].modifiedAt, data.Photos[i].sizeBytes, data.Photos[j].sizeBytes)
 	})
 	return data
+}
+
+func normalizeSort(raw string) string {
+	switch raw {
+	case "name", "name-desc", "date", "date-desc", "size", "size-desc":
+		return raw
+	default:
+		return "name"
+	}
+}
+
+func lessEntry(sortKey, nameA, nameB string, timeA, timeB time.Time, sizeA, sizeB int64) bool {
+	desc := strings.HasSuffix(sortKey, "-desc")
+	switch strings.TrimSuffix(sortKey, "-desc") {
+	case "date":
+		if !timeA.Equal(timeB) {
+			if desc {
+				return timeA.After(timeB)
+			}
+			return timeA.Before(timeB)
+		}
+	case "size":
+		if sizeA != sizeB {
+			if desc {
+				return sizeA > sizeB
+			}
+			return sizeA < sizeB
+		}
+	}
+	left, right := strings.ToLower(nameA), strings.ToLower(nameB)
+	if desc && strings.TrimSuffix(sortKey, "-desc") == "name" {
+		return left > right
+	}
+	return left < right
 }
 
 func (b *Browser) Open(rawPath string) (*os.File, os.FileInfo, error) {

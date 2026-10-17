@@ -89,6 +89,10 @@
   if (savedTheme) root.dataset.theme = savedTheme;
   prepareThumbnails();
 
+  const persistSort = (value) => {
+    document.cookie = `picg-sort=${encodeURIComponent(value)}; path=/; max-age=31536000; SameSite=Lax`;
+  };
+
   const lightboxDialog = () => document.querySelector("[data-lightbox]");
   const mediaItems = () => [...document.querySelectorAll("[data-photo-src]")];
   const lightboxPreloads = new Map();
@@ -365,6 +369,11 @@
   document.addEventListener("volumechange", (event) => {
     if (!event.target.matches?.("[data-lightbox-video]")) return;
     persistVideoVolume(event.target);
+  }, true);
+
+  document.addEventListener("change", (event) => {
+    if (!event.target.matches?.("#gallery-sort")) return;
+    persistSort(event.target.value);
   }, true);
 
   document.addEventListener("input", (event) => {

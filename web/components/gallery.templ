@@ -76,7 +76,18 @@ templ GalleryContent(data gallery.PageData) {
 			<div class="toolbar-actions">
 				<label class="search-box">
 					<span>⌕</span>
-					<input type="search" name="q" value={ data.Query } placeholder="搜尋目前目錄" hx-get="/gallery" hx-trigger="input changed delay:250ms, search" hx-target="#gallery-content" hx-include="#current-path"/>
+					<input type="search" name="q" value={ data.Query } placeholder="搜尋目前目錄" hx-get="/gallery" hx-trigger="input changed delay:250ms, search" hx-target="#gallery-content" hx-include="#current-path, #gallery-sort"/>
+				</label>
+				<label class="sort-box">
+					<select id="gallery-sort" name="sort" aria-label="排序" hx-get="/gallery" hx-trigger="change" hx-target="#gallery-content" hx-include="#current-path, .search-box input">
+						for _, option := range gallery.SortOptions {
+							if data.Sort == option.Value {
+								<option value={ option.Value } selected>{ option.Label }</option>
+							} else {
+								<option value={ option.Value }>{ option.Label }</option>
+							}
+						}
+					</select>
 				</label>
 				<input id="current-path" type="hidden" name="path" value={ data.CurrentPath }/>
 				<button class="tool-button" type="button" data-view-toggle aria-label="切換相片大小">▦</button>

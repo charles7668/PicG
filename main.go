@@ -91,7 +91,7 @@ func routesWithStorage(root, configPath, databasePath, thumbnailDir string, clea
 	}
 	mux.Handle("GET /assets/", http.StripPrefix("/", http.FileServer(http.FS(assets))))
 	browse := func(r *http.Request) gallery.PageData {
-		data := browser.Browse(r.URL.Query().Get("path"), r.URL.Query().Get("q"))
+		data := browser.Browse(r.URL.Query().Get("path"), r.URL.Query().Get("q"), requestSort(r))
 		thumbnailQueue.Focus(data.CurrentPath)
 		return data
 	}
@@ -271,6 +271,16 @@ func renderStatus(w http.ResponseWriter, r *http.Request, status int, c templ.Co
 	if err := c.Render(r.Context(), w); err != nil {
 		log.Printf("render: %v", err)
 	}
+}
+
+func requestSort(r *http.Request) string {
+	if value := strings.TrimSpace(r.URL.Query().Get("sort")); value != "" {
+		return value
+	}
+	if cookie, err := r.Cookie("picg-sort"); err == nil {
+		return cookie.Value
+	}
+	return ""
 }
 
 func isVideoFilename(path string) bool {

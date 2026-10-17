@@ -37,6 +37,7 @@ func TestRoutesBrowseAndServePictures(t *testing.T) {
 		{path: "/", status: http.StatusOK, want: "data-lightbox-prev", contentType: "text/html"},
 		{path: "/", status: http.StatusOK, want: "data-lightbox-zoom", contentType: "text/html"},
 		{path: "/", status: http.StatusOK, want: "hx-sync", contentType: "text/html"},
+		{path: "/", status: http.StatusOK, want: "gallery-sort", contentType: "text/html"},
 		{path: "/assets/app.js", status: http.StatusOK, want: "ArrowLeft", contentType: "text/javascript"},
 		{path: "/assets/app.js", status: http.StatusOK, want: "setLightboxZoom", contentType: "text/javascript"},
 		{path: "/gallery?path=Trips", status: http.StatusOK, want: "photo-placeholder", wantAbsent: "正在準備縮圖", contentType: "text/html"},
