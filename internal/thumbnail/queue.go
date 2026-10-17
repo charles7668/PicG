@@ -33,7 +33,7 @@ type Queue struct {
 	closed  bool
 }
 
-const defaultWorkers = 4
+const defaultWorkers = 6
 
 func NewQueue(store *Store) *Queue {
 	return newQueue(store, defaultWorkers)

@@ -448,7 +448,7 @@ func ThumbnailGrid(data gallery.PageData) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 40, "\" alt=\"\" decoding=\"async\" loading=\"lazy\" data-folder-cover data-thumbnail><span class=\"folder-tab\"></span></div><div class=\"folder-info\"><strong>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 40, "\" alt=\"\" decoding=\"async\" data-folder-cover data-thumbnail><span class=\"folder-tab\"></span></div><div class=\"folder-info\"><strong>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -633,14 +633,14 @@ func ThumbnailGrid(data gallery.PageData) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 56, "\" decoding=\"async\" loading=\"lazy\" data-media-thumbnail=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 56, "\" decoding=\"async\" data-media-thumbnail=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var37 string
 				templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.ResolveAttributeValue(photo.Kind)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 150, Col: 123}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 150, Col: 108}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var37)
 				if templ_7745c5c3_Err != nil {
