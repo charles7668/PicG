@@ -122,6 +122,16 @@ button { cursor: pointer; }
 .lightbox video { width: min(95vw, 1280px); max-height: calc(100vh - 78px); background: #000; }
 .lightbox [hidden] { display: none; }
 .lightbox-close { position: fixed; z-index: 2; top: 14px; right: 18px; width: 40px; height: 40px; border: 0; border-radius: 50%; color: #fff; background: rgba(255,255,255,.1); font-size: 26px; }
+.lightbox-nav { position: fixed; z-index: 2; top: 50%; width: 44px; height: 44px; border: 0; border-radius: 50%; color: #fff; background: rgba(255,255,255,.1); font-size: 32px; line-height: 1; transform: translateY(-50%); }
+.lightbox-prev { left: 18px; }
+.lightbox-next { right: 18px; }
+.lightbox-close:hover, .lightbox-nav:hover { background: rgba(255,255,255,.2); }
+.lightbox-close:focus-visible, .lightbox-nav:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+@media (max-width: 640px) {
+  .lightbox-nav { width: 38px; height: 38px; font-size: 28px; }
+  .lightbox-prev { left: 8px; }
+  .lightbox-next { right: 8px; }
+}
 .lightbox-caption { display: flex; align-items: center; justify-content: center; gap: 12px; min-height: 58px; }
 .lightbox-caption strong { font-size: 12px; font-weight: 500; }
 .lightbox-caption span { color: #89919a; font-size: 10px; }

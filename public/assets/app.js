@@ -49,6 +49,61 @@
   if (savedTheme) root.dataset.theme = savedTheme;
   prepareThumbnails();
 
+  const lightboxDialog = () => document.querySelector("[data-lightbox]");
+  const mediaItems = () => [...document.querySelectorAll("[data-photo-src]")];
+
+  const stopLightboxVideo = (dialog) => {
+    const video = dialog?.querySelector("[data-lightbox-video]");
+    video?.pause();
+    if (video) video.removeAttribute("src");
+  };
+
+  const closeLightbox = () => {
+    const dialog = lightboxDialog();
+    stopLightboxVideo(dialog);
+    dialog?.close();
+  };
+
+  const showMediaAt = (index) => {
+    const dialog = lightboxDialog();
+    const items = mediaItems();
+    if (!dialog || items.length === 0) return;
+    const next = ((index % items.length) + items.length) % items.length;
+    const photo = items[next];
+    const image = dialog.querySelector("[data-lightbox-image]");
+    const video = dialog.querySelector("[data-lightbox-video]");
+    const isVideo = photo.dataset.mediaKind === "video";
+    video.pause();
+    if (isVideo) {
+      image.removeAttribute("src");
+      image.hidden = true;
+      video.hidden = false;
+      video.src = photo.dataset.photoSrc;
+    } else {
+      video.removeAttribute("src");
+      video.hidden = true;
+      image.hidden = false;
+      image.src = photo.dataset.photoSrc;
+      image.alt = photo.dataset.photoTitle;
+    }
+    dialog.querySelector("[data-lightbox-title]").textContent = photo.dataset.photoTitle;
+    dialog.querySelector("[data-lightbox-meta]").textContent = photo.dataset.photoMeta;
+    dialog.dataset.lightboxIndex = String(next);
+    const showNav = items.length > 1;
+    dialog.querySelector("[data-lightbox-prev]").hidden = !showNav;
+    dialog.querySelector("[data-lightbox-next]").hidden = !showNav;
+    if (dialog.isConnected && !dialog.open) dialog.showModal();
+    if (isVideo) video.play().catch(() => {});
+  };
+
+  const stepLightbox = (delta) => {
+    const dialog = lightboxDialog();
+    if (!dialog?.open) return;
+    const items = mediaItems();
+    if (items.length < 2) return;
+    showMediaAt(Number(dialog.dataset.lightboxIndex || 0) + delta);
+  };
+
   document.addEventListener("click", (event) => {
     if (event.target.closest("[data-theme-toggle]")) {
       const next = root.dataset.theme === "dark" ? "light" : "dark";
@@ -62,44 +117,43 @@
       return;
     }
 
-    const lightbox = document.querySelector("[data-lightbox]");
+    const dialog = lightboxDialog();
     const photo = event.target.closest("[data-photo-src]");
-    if (photo && lightbox) {
-      const image = lightbox.querySelector("[data-lightbox-image]");
-      const video = lightbox.querySelector("[data-lightbox-video]");
-      const isVideo = photo.dataset.mediaKind === "video";
-      image.hidden = isVideo;
-      video.hidden = !isVideo;
-      if (isVideo) {
-        video.src = photo.dataset.photoSrc;
-      } else {
-        video.pause();
-        video.removeAttribute("src");
-        image.src = photo.dataset.photoSrc;
-        image.alt = photo.dataset.photoTitle;
-      }
-      lightbox.querySelector("[data-lightbox-title]").textContent = photo.dataset.photoTitle;
-      lightbox.querySelector("[data-lightbox-meta]").textContent = photo.dataset.photoMeta;
-      if (lightbox.isConnected && !lightbox.open) lightbox.showModal();
-      if (isVideo) video.play().catch(() => {});
+    if (photo && dialog) {
+      const index = mediaItems().indexOf(photo);
+      if (index >= 0) showMediaAt(index);
       return;
     }
 
-    if (event.target.closest("[data-lightbox-close]") || event.target === lightbox) {
-      const video = lightbox?.querySelector("[data-lightbox-video]");
-      video?.pause();
-      if (video) video.removeAttribute("src");
-      lightbox?.close();
+    if (event.target.closest("[data-lightbox-prev]")) {
+      stepLightbox(-1);
+      return;
+    }
+    if (event.target.closest("[data-lightbox-next]")) {
+      stepLightbox(1);
+      return;
+    }
+
+    if (event.target.closest("[data-lightbox-close]") || event.target === dialog) {
+      closeLightbox();
     }
   });
 
   document.addEventListener("keydown", (event) => {
-    const lightbox = document.querySelector("[data-lightbox]");
-    if (event.key === "Escape" && lightbox?.open) {
-      const video = lightbox.querySelector("[data-lightbox-video]");
-      video.pause();
-      video.removeAttribute("src");
-      lightbox.close();
+    const dialog = lightboxDialog();
+    if (!dialog?.open) return;
+    if (event.key === "Escape") {
+      closeLightbox();
+      return;
+    }
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      stepLightbox(-1);
+      return;
+    }
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      stepLightbox(1);
     }
   });
 

@@ -34,6 +34,8 @@ func TestRoutesBrowseAndServePictures(t *testing.T) {
 		contentType string
 	}{
 		{path: "/", status: http.StatusOK, want: "<!doctype html>", contentType: "text/html"},
+		{path: "/", status: http.StatusOK, want: "data-lightbox-prev", contentType: "text/html"},
+		{path: "/assets/app.js", status: http.StatusOK, want: "ArrowLeft", contentType: "text/javascript"},
 		{path: "/gallery?path=Trips", status: http.StatusOK, want: "photo-placeholder", wantAbsent: "正在準備縮圖", contentType: "text/html"},
 		{path: "/gallery?path=Trips&q=missing", status: http.StatusOK, want: "找不到符合的項目", contentType: "text/html"},
 		{path: "/gallery/thumbnails?path=Trips", status: http.StatusOK, want: "sunset", contentType: "text/html"},

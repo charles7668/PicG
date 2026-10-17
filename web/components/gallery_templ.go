@@ -55,7 +55,7 @@ func Page(data gallery.PageData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "</main><dialog class=\"lightbox\" data-lightbox><button class=\"lightbox-close\" type=\"button\" data-lightbox-close aria-label=\"關閉\">×</button> <img data-lightbox-image alt=\"\"><video data-lightbox-video controls playsinline hidden></video><div class=\"lightbox-caption\"><strong data-lightbox-title></strong><span data-lightbox-meta></span></div></dialog></body></html>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "</main><dialog class=\"lightbox\" data-lightbox><button class=\"lightbox-close\" type=\"button\" data-lightbox-close aria-label=\"關閉\">×</button> <button class=\"lightbox-nav lightbox-prev\" type=\"button\" data-lightbox-prev aria-label=\"上一張\">‹</button> <button class=\"lightbox-nav lightbox-next\" type=\"button\" data-lightbox-next aria-label=\"下一張\">›</button> <img data-lightbox-image alt=\"\"><video data-lightbox-video controls playsinline hidden></video><div class=\"lightbox-caption\"><strong data-lightbox-title></strong><span data-lightbox-meta></span></div></dialog></body></html>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -102,7 +102,7 @@ func GalleryContent(data gallery.PageData) templ.Component {
 			var templ_7745c5c3_Var4 templ.SafeURL
 			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(crumb.Href))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 59, Col: 35}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 61, Col: 35}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 			if templ_7745c5c3_Err != nil {
@@ -115,7 +115,7 @@ func GalleryContent(data gallery.PageData) templ.Component {
 			var templ_7745c5c3_Var5 string
 			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.ResolveAttributeValue(galleryFragmentURL(crumb.Href))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 59, Col: 77}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 61, Col: 77}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var5)
 			if templ_7745c5c3_Err != nil {
@@ -128,7 +128,7 @@ func GalleryContent(data gallery.PageData) templ.Component {
 			var templ_7745c5c3_Var6 string
 			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.ResolveAttributeValue(crumb.Href)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 59, Col: 133}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 61, Col: 133}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var6)
 			if templ_7745c5c3_Err != nil {
@@ -141,7 +141,7 @@ func GalleryContent(data gallery.PageData) templ.Component {
 			var templ_7745c5c3_Var7 string
 			templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(crumb.Name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 59, Col: 148}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 61, Col: 148}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 			if templ_7745c5c3_Err != nil {
@@ -159,7 +159,7 @@ func GalleryContent(data gallery.PageData) templ.Component {
 		var templ_7745c5c3_Var8 string
 		templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(data.CurrentName)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 64, Col: 26}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 66, Col: 26}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 		if templ_7745c5c3_Err != nil {
@@ -172,7 +172,7 @@ func GalleryContent(data gallery.PageData) templ.Component {
 		var templ_7745c5c3_Var9 string
 		templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d 個資料夾 · %d 個媒體", len(data.Directories), len(data.Photos)))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 65, Col: 96}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 67, Col: 96}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 		if templ_7745c5c3_Err != nil {
@@ -185,7 +185,7 @@ func GalleryContent(data gallery.PageData) templ.Component {
 		var templ_7745c5c3_Var10 string
 		templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.Query)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 70, Col: 53}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 72, Col: 53}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var10)
 		if templ_7745c5c3_Err != nil {
@@ -198,7 +198,7 @@ func GalleryContent(data gallery.PageData) templ.Component {
 		var templ_7745c5c3_Var11 string
 		templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.CurrentPath)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 72, Col: 79}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 74, Col: 79}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var11)
 		if templ_7745c5c3_Err != nil {
@@ -216,7 +216,7 @@ func GalleryContent(data gallery.PageData) templ.Component {
 			var templ_7745c5c3_Var12 string
 			templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(data.Error)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 79, Col: 20}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 81, Col: 20}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 			if templ_7745c5c3_Err != nil {
@@ -234,7 +234,7 @@ func GalleryContent(data gallery.PageData) templ.Component {
 				var templ_7745c5c3_Var13 string
 				templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(data.Root)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 81, Col: 56}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 83, Col: 56}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 				if templ_7745c5c3_Err != nil {
@@ -316,7 +316,7 @@ func ThumbnailGrid(data gallery.PageData) templ.Component {
 			var templ_7745c5c3_Var15 string
 			templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprint(len(data.Directories)))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 106, Col: 98}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 108, Col: 98}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 			if templ_7745c5c3_Err != nil {
@@ -334,7 +334,7 @@ func ThumbnailGrid(data gallery.PageData) templ.Component {
 				var templ_7745c5c3_Var16 templ.SafeURL
 				templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(directory.Href))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 109, Col: 61}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 111, Col: 61}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 				if templ_7745c5c3_Err != nil {
@@ -347,7 +347,7 @@ func ThumbnailGrid(data gallery.PageData) templ.Component {
 				var templ_7745c5c3_Var17 string
 				templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.ResolveAttributeValue(galleryFragmentURL(directory.Href))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 109, Col: 107}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 111, Col: 107}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var17)
 				if templ_7745c5c3_Err != nil {
@@ -360,7 +360,7 @@ func ThumbnailGrid(data gallery.PageData) templ.Component {
 				var templ_7745c5c3_Var18 string
 				templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.ResolveAttributeValue(directory.Href)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 109, Col: 167}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 111, Col: 167}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var18)
 				if templ_7745c5c3_Err != nil {
@@ -373,7 +373,7 @@ func ThumbnailGrid(data gallery.PageData) templ.Component {
 				var templ_7745c5c3_Var19 string
 				templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.ResolveAttributeValue(directory.CoverOriginalURL)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 111, Col: 88}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 113, Col: 88}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var19)
 				if templ_7745c5c3_Err != nil {
@@ -386,7 +386,7 @@ func ThumbnailGrid(data gallery.PageData) templ.Component {
 				var templ_7745c5c3_Var20 string
 				templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.ResolveAttributeValue(directory.CoverURL)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 111, Col: 130}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 113, Col: 130}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var20)
 				if templ_7745c5c3_Err != nil {
@@ -399,7 +399,7 @@ func ThumbnailGrid(data gallery.PageData) templ.Component {
 				var templ_7745c5c3_Var21 string
 				templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinStringErrs(directory.Name)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 113, Col: 56}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 115, Col: 56}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 				if templ_7745c5c3_Err != nil {
@@ -412,7 +412,7 @@ func ThumbnailGrid(data gallery.PageData) templ.Component {
 				var templ_7745c5c3_Var22 string
 				templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinStringErrs(directorySummary(directory))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 113, Col: 102}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 115, Col: 102}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
 				if templ_7745c5c3_Err != nil {
@@ -436,7 +436,7 @@ func ThumbnailGrid(data gallery.PageData) templ.Component {
 			var templ_7745c5c3_Var23 string
 			templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprint(len(data.Photos)))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 121, Col: 90}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 123, Col: 90}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var23))
 			if templ_7745c5c3_Err != nil {
@@ -454,7 +454,7 @@ func ThumbnailGrid(data gallery.PageData) templ.Component {
 				var templ_7745c5c3_Var24 string
 				templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.ResolveAttributeValue(photo.URL)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 124, Col: 73}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 126, Col: 73}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var24)
 				if templ_7745c5c3_Err != nil {
@@ -467,7 +467,7 @@ func ThumbnailGrid(data gallery.PageData) templ.Component {
 				var templ_7745c5c3_Var25 string
 				templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.ResolveAttributeValue(photo.Name)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 124, Col: 105}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 126, Col: 105}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var25)
 				if templ_7745c5c3_Err != nil {
@@ -480,7 +480,7 @@ func ThumbnailGrid(data gallery.PageData) templ.Component {
 				var templ_7745c5c3_Var26 string
 				templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.ResolveAttributeValue(photo.Modified + " · " + photo.Size)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 124, Col: 162}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 126, Col: 162}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var26)
 				if templ_7745c5c3_Err != nil {
@@ -493,7 +493,7 @@ func ThumbnailGrid(data gallery.PageData) templ.Component {
 				var templ_7745c5c3_Var27 string
 				templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.ResolveAttributeValue(photo.Kind)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 124, Col: 193}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 126, Col: 193}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var27)
 				if templ_7745c5c3_Err != nil {
@@ -506,7 +506,7 @@ func ThumbnailGrid(data gallery.PageData) templ.Component {
 				var templ_7745c5c3_Var28 string
 				templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.JoinStringErrs(photoPlaceholderIcon(photo.Kind))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 126, Col: 48}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 128, Col: 48}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var28))
 				if templ_7745c5c3_Err != nil {
@@ -519,7 +519,7 @@ func ThumbnailGrid(data gallery.PageData) templ.Component {
 				var templ_7745c5c3_Var29 string
 				templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.JoinStringErrs(photo.Name)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 127, Col: 28}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 129, Col: 28}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var29))
 				if templ_7745c5c3_Err != nil {
@@ -532,7 +532,7 @@ func ThumbnailGrid(data gallery.PageData) templ.Component {
 				var templ_7745c5c3_Var30 string
 				templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(photo.Modified)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 128, Col: 31}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 130, Col: 31}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
 				if templ_7745c5c3_Err != nil {
@@ -545,7 +545,7 @@ func ThumbnailGrid(data gallery.PageData) templ.Component {
 				var templ_7745c5c3_Var31 string
 				templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.JoinStringErrs(photo.Size)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 128, Col: 49}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 130, Col: 49}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var31))
 				if templ_7745c5c3_Err != nil {
@@ -563,7 +563,7 @@ func ThumbnailGrid(data gallery.PageData) templ.Component {
 					var templ_7745c5c3_Var32 string
 					templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.ResolveAttributeValue(photo.URL)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 131, Col: 28}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 133, Col: 28}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var32)
 					if templ_7745c5c3_Err != nil {
@@ -576,7 +576,7 @@ func ThumbnailGrid(data gallery.PageData) templ.Component {
 					var templ_7745c5c3_Var33 string
 					templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.ResolveAttributeValue(photo.ThumbnailURL)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 131, Col: 70}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 133, Col: 70}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var33)
 					if templ_7745c5c3_Err != nil {
@@ -589,7 +589,7 @@ func ThumbnailGrid(data gallery.PageData) templ.Component {
 					var templ_7745c5c3_Var34 string
 					templ_7745c5c3_Var34, templ_7745c5c3_Err = templ.ResolveAttributeValue(photo.Name)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 131, Col: 89}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 133, Col: 89}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var34)
 					if templ_7745c5c3_Err != nil {
@@ -602,7 +602,7 @@ func ThumbnailGrid(data gallery.PageData) templ.Component {
 					var templ_7745c5c3_Var35 string
 					templ_7745c5c3_Var35, templ_7745c5c3_Err = templ.ResolveAttributeValue(photo.Kind)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 131, Col: 157}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 133, Col: 157}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var35)
 					if templ_7745c5c3_Err != nil {
@@ -620,7 +620,7 @@ func ThumbnailGrid(data gallery.PageData) templ.Component {
 					var templ_7745c5c3_Var36 string
 					templ_7745c5c3_Var36, templ_7745c5c3_Err = templ.ResolveAttributeValue(photo.ThumbnailURL)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 133, Col: 52}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 135, Col: 52}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var36)
 					if templ_7745c5c3_Err != nil {
@@ -633,7 +633,7 @@ func ThumbnailGrid(data gallery.PageData) templ.Component {
 					var templ_7745c5c3_Var37 string
 					templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.ResolveAttributeValue(photo.Name)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 133, Col: 71}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 135, Col: 71}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var37)
 					if templ_7745c5c3_Err != nil {
@@ -646,7 +646,7 @@ func ThumbnailGrid(data gallery.PageData) templ.Component {
 					var templ_7745c5c3_Var38 string
 					templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.ResolveAttributeValue(photo.Kind)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 133, Col: 124}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 135, Col: 124}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var38)
 					if templ_7745c5c3_Err != nil {
@@ -670,7 +670,7 @@ func ThumbnailGrid(data gallery.PageData) templ.Component {
 				var templ_7745c5c3_Var39 string
 				templ_7745c5c3_Var39, templ_7745c5c3_Err = templ.JoinStringErrs(photo.Name)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 138, Col: 55}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 140, Col: 55}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var39))
 				if templ_7745c5c3_Err != nil {
@@ -683,7 +683,7 @@ func ThumbnailGrid(data gallery.PageData) templ.Component {
 				var templ_7745c5c3_Var40 string
 				templ_7745c5c3_Var40, templ_7745c5c3_Err = templ.JoinStringErrs(photo.Modified)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 138, Col: 89}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 140, Col: 89}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var40))
 				if templ_7745c5c3_Err != nil {
@@ -696,7 +696,7 @@ func ThumbnailGrid(data gallery.PageData) templ.Component {
 				var templ_7745c5c3_Var41 string
 				templ_7745c5c3_Var41, templ_7745c5c3_Err = templ.JoinStringErrs(photo.Size)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 138, Col: 107}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 140, Col: 107}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var41))
 				if templ_7745c5c3_Err != nil {

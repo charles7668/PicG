@@ -41,6 +41,8 @@ templ Page(data gallery.PageData) {
 			<main id="gallery-content">@GalleryContent(data)</main>
 			<dialog class="lightbox" data-lightbox>
 				<button class="lightbox-close" type="button" data-lightbox-close aria-label="關閉">×</button>
+				<button class="lightbox-nav lightbox-prev" type="button" data-lightbox-prev aria-label="上一張">‹</button>
+				<button class="lightbox-nav lightbox-next" type="button" data-lightbox-next aria-label="下一張">›</button>
 				<img data-lightbox-image alt=""/>
 				<video data-lightbox-video controls playsinline hidden></video>
 				<div class="lightbox-caption"><strong data-lightbox-title></strong><span data-lightbox-meta></span></div>
