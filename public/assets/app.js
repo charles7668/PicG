@@ -82,6 +82,7 @@
 
   const lightboxDialog = () => document.querySelector("[data-lightbox]");
   const mediaItems = () => [...document.querySelectorAll("[data-photo-src]")];
+  const lightboxPreloads = new Map();
   let lightboxRequest = 0;
 
   const stopLightboxVideo = (dialog) => {
@@ -97,11 +98,79 @@
     image.alt = "";
   };
 
+  const preloadLightboxSrc = (src) => {
+    if (!src) return null;
+    const existing = lightboxPreloads.get(src);
+    if (existing) {
+      lightboxPreloads.delete(src);
+      lightboxPreloads.set(src, existing);
+      return existing;
+    }
+    const loader = new Image();
+    loader.decoding = "async";
+    loader.src = src;
+    lightboxPreloads.set(src, loader);
+    while (lightboxPreloads.size > 8) {
+      lightboxPreloads.delete(lightboxPreloads.keys().next().value);
+    }
+    return loader;
+  };
+
+  const preloadLightboxNeighbors = (index, items) => {
+    if (items.length < 2) return;
+    for (const offset of [-1, 1]) {
+      const photo = items[(index + offset + items.length) % items.length];
+      if (photo.dataset.mediaKind !== "video") preloadLightboxSrc(photo.dataset.photoSrc);
+    }
+  };
+
+  const whenImageReady = (src, done) => {
+    const loader = preloadLightboxSrc(src);
+    const finish = () => done();
+    if (!loader) {
+      finish();
+      return;
+    }
+    const afterLoad = () => {
+      if (typeof loader.decode === "function") {
+        loader.decode().then(finish, finish);
+        return;
+      }
+      finish();
+    };
+    loader.addEventListener("load", afterLoad, { once: true });
+    loader.addEventListener("error", finish, { once: true });
+    if (loader.complete) afterLoad();
+  };
+
+  const paintLightbox = (dialog, photo, image, video) => {
+    const isVideo = photo.dataset.mediaKind === "video";
+    dialog.querySelector("[data-lightbox-title]").textContent = photo.dataset.photoTitle;
+    dialog.querySelector("[data-lightbox-meta]").textContent = photo.dataset.photoMeta;
+    if (isVideo) {
+      clearLightboxImage(image);
+      video.hidden = false;
+      video.src = photo.dataset.photoSrc;
+      video.play().catch(() => {});
+      return;
+    }
+    stopLightboxVideo(dialog);
+    video.hidden = true;
+    image.alt = photo.dataset.photoTitle;
+    image.src = photo.dataset.photoSrc;
+    image.hidden = false;
+  };
+
   const closeLightbox = () => {
     lightboxRequest += 1;
+    lightboxPreloads.clear();
     const dialog = lightboxDialog();
     stopLightboxVideo(dialog);
     clearLightboxImage(dialog?.querySelector("[data-lightbox-image]"));
+    if (dialog) {
+      dialog.querySelector("[data-lightbox-title]").textContent = "";
+      dialog.querySelector("[data-lightbox-meta]").textContent = "";
+    }
     dialog?.close();
   };
 
@@ -113,33 +182,24 @@
     const photo = items[next];
     const image = dialog.querySelector("[data-lightbox-image]");
     const video = dialog.querySelector("[data-lightbox-video]");
-    const isVideo = photo.dataset.mediaKind === "video";
     const request = ++lightboxRequest;
-    stopLightboxVideo(dialog);
-    video.hidden = true;
-    clearLightboxImage(image);
-    dialog.querySelector("[data-lightbox-title]").textContent = photo.dataset.photoTitle;
-    dialog.querySelector("[data-lightbox-meta]").textContent = photo.dataset.photoMeta;
+    cancelThumbnailWork();
     dialog.dataset.lightboxIndex = String(next);
     const showNav = items.length > 1;
     dialog.querySelector("[data-lightbox-prev]").hidden = !showNav;
     dialog.querySelector("[data-lightbox-next]").hidden = !showNav;
     if (dialog.isConnected && !dialog.open) dialog.showModal();
-    if (isVideo) {
-      video.hidden = false;
-      video.src = photo.dataset.photoSrc;
-      video.play().catch(() => {});
+    if (photo.dataset.mediaKind !== "video") preloadLightboxSrc(photo.dataset.photoSrc);
+    preloadLightboxNeighbors(next, items);
+    const apply = () => {
+      if (request !== lightboxRequest) return;
+      paintLightbox(dialog, photo, image, video);
+    };
+    if (photo.dataset.mediaKind === "video") {
+      apply();
       return;
     }
-    const reveal = () => {
-      if (request !== lightboxRequest) return;
-      image.hidden = false;
-    };
-    image.alt = photo.dataset.photoTitle;
-    image.addEventListener("load", reveal, { once: true });
-    image.addEventListener("error", reveal, { once: true });
-    image.src = photo.dataset.photoSrc;
-    if (image.complete) reveal();
+    whenImageReady(photo.dataset.photoSrc, apply);
   };
 
   const stepLightbox = (delta) => {
