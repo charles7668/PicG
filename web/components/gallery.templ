@@ -126,7 +126,7 @@ templ ThumbnailGrid(data gallery.PageData) {
 				<div class="section-heading"><h2>資料夾預覽</h2><span>{ fmt.Sprint(len(data.Directories)) }</span></div>
 				<div class="folder-grid">
 					for _, directory := range data.Directories {
-						<a class="folder-card" href={ templ.URL(directory.Href) } hx-get={ galleryFragmentURL(directory.Href) } hx-target="#gallery-content" hx-push-url={ directory.Href }>
+						<a class="folder-card" href={ templ.URL(directory.Href) } title={ directory.Name } hx-get={ galleryFragmentURL(directory.Href) } hx-target="#gallery-content" hx-push-url={ directory.Href }>
 							<div class="folder-cover">
 								<span class="folder-placeholder">▰</span><img src={ directory.CoverURL } alt="" decoding="async" data-folder-cover data-thumbnail/><span class="folder-tab"></span>
 							</div>
@@ -141,7 +141,7 @@ templ ThumbnailGrid(data gallery.PageData) {
 				<div class="section-heading"><h2>媒體預覽</h2><span>{ fmt.Sprint(len(data.Photos)) }</span></div>
 				<div class="photo-grid" data-photo-grid>
 					for _, photo := range data.Photos {
-						<button class="photo-card" type="button" data-photo-src={ photo.URL } data-photo-title={ photo.Name } data-photo-meta={ photo.Modified + " · " + photo.Size } data-media-kind={ photo.Kind }>
+						<button class="photo-card" type="button" title={ photo.Name } data-photo-src={ photo.URL } data-photo-title={ photo.Name } data-photo-meta={ photo.Modified + " · " + photo.Size } data-media-kind={ photo.Kind }>
 							<span class="photo-placeholder">
 								<span>{ photoPlaceholderIcon(photo.Kind) }</span>
 								<strong>{ photo.Name }</strong>
