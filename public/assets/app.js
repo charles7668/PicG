@@ -12,6 +12,39 @@
     });
   };
 
+  const splitMediaGrids = (scope = document) => {
+    scope.querySelectorAll?.("[data-photo-grid]:not([data-media-split])").forEach((grid) => {
+      const section = grid.closest(".photo-section");
+      const heading = section?.querySelector(":scope > .section-heading");
+      const images = [...grid.querySelectorAll('[data-media-kind="image"]')];
+      const videos = [...grid.querySelectorAll('[data-media-kind="video"]')];
+      if (!section || !heading) return;
+
+      grid.dataset.mediaSplit = "true";
+      const setHeading = (target, label, count) => {
+        target.querySelector("h2").textContent = label;
+        target.querySelector("span").textContent = String(count);
+      };
+
+      if (images.length === 0) {
+        setHeading(heading, "影片預覽", videos.length);
+        return;
+      }
+      setHeading(heading, "圖片預覽", images.length);
+      if (videos.length === 0) return;
+
+      const videoSection = document.createElement("section");
+      videoSection.className = "section-block photo-section";
+      const videoHeading = heading.cloneNode(true);
+      setHeading(videoHeading, "影片預覽", videos.length);
+      const videoGrid = grid.cloneNode(false);
+      videoGrid.dataset.mediaSplit = "true";
+      videos.forEach((video) => videoGrid.append(video));
+      videoSection.append(videoHeading, videoGrid);
+      section.after(videoSection);
+    });
+  };
+
   const cancelThumbnailWork = () => {
     thumbnailEpoch += 1;
     document.querySelectorAll("img[data-thumbnail]").forEach((image) => {
@@ -24,6 +57,7 @@
   const isGalleryNavigation = (node) => node?.closest?.("a.folder-card, nav.breadcrumbs a[hx-get]");
 
   if (savedTheme) root.dataset.theme = savedTheme;
+  splitMediaGrids();
   prepareThumbnails();
 
   const persistSort = (value) => {
@@ -247,7 +281,7 @@
     }
 
     if (event.target.closest("[data-view-toggle]")) {
-      document.querySelector("[data-photo-grid]")?.classList.toggle("compact");
+      document.querySelectorAll("[data-photo-grid]").forEach((grid) => grid.classList.toggle("compact"));
       return;
     }
 
@@ -373,6 +407,7 @@
   document.addEventListener("htmx:beforeRequest", cancelThumbnailWork);
 
   document.addEventListener("htmx:afterSwap", (event) => {
+    splitMediaGrids(event.target);
     prepareThumbnails(event.target);
     window.scrollTo({ top: 0, behavior: "smooth" });
   });
