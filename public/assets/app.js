@@ -67,6 +67,8 @@
   const lightboxDialog = () => document.querySelector("[data-lightbox]");
   const mediaItems = () => [...document.querySelectorAll("[data-photo-src]")];
   const lightboxPreloads = new Map();
+  const lightboxVideoStreams = new WeakMap();
+  const streamMimeType = 'video/mp4; codecs="avc1.42C02A, mp4a.40.2"';
   const lightboxZoomMin = 1;
   const lightboxZoomMax = 5;
   let lightboxRequest = 0;
@@ -76,10 +78,137 @@
   let lightboxPanning = false;
   let lightboxPanStart = null;
 
-  const stopLightboxVideo = (dialog) => {
-    const video = dialog?.querySelector("[data-lightbox-video]");
-    video?.pause();
-    if (video) video.removeAttribute("src");
+  const stopVideoElement = (video) => {
+    if (!video) return;
+    const stream = lightboxVideoStreams.get(video);
+    if (stream) stream.stopped = true;
+    stream?.abort?.abort();
+    lightboxVideoStreams.delete(video);
+    video.pause();
+    video.removeAttribute("src");
+    video.load();
+    if (stream?.objectURL) URL.revokeObjectURL(stream.objectURL);
+  };
+
+  const stopLightboxVideo = (dialog) => stopVideoElement(dialog?.querySelector("[data-lightbox-video]"));
+
+  const updateVideoBuffer = (sourceBuffer, update) => new Promise((resolve, reject) => {
+    const cleanup = () => {
+      sourceBuffer.removeEventListener("updateend", complete);
+      sourceBuffer.removeEventListener("error", fail);
+      sourceBuffer.removeEventListener("abort", fail);
+    };
+    const complete = () => {
+      cleanup();
+      resolve();
+    };
+    const fail = (event) => {
+      cleanup();
+      if (event?.type === "abort") {
+        reject(new DOMException("video segment aborted", "AbortError"));
+        return;
+      }
+      reject(new Error("unable to append video segment"));
+    };
+    sourceBuffer.addEventListener("updateend", complete, { once: true });
+    sourceBuffer.addEventListener("error", fail, { once: true });
+    sourceBuffer.addEventListener("abort", fail, { once: true });
+    try {
+      update();
+    } catch (error) {
+      cleanup();
+      reject(error);
+    }
+  });
+
+  const appendVideoChunk = (sourceBuffer, chunk) => updateVideoBuffer(sourceBuffer, () => sourceBuffer.appendBuffer(chunk));
+
+  const trimVideoBuffer = async (sourceBuffer, currentTime) => {
+    if (sourceBuffer.buffered.length === 0) return;
+    const start = sourceBuffer.buffered.start(0);
+    const end = currentTime - 30;
+    if (end - start < 30) return;
+    await updateVideoBuffer(sourceBuffer, () => sourceBuffer.remove(start, end));
+  };
+
+  const videoStreamURL = (src, start) => {
+    const streamURL = new URL(src, window.location.href);
+    if (start > 0) streamURL.searchParams.set("start", String(start));
+    return streamURL;
+  };
+
+  const pumpVideoStream = async (video, stream, start) => {
+    const generation = ++stream.generation;
+    const abort = new AbortController();
+    stream.abort = abort;
+    const response = await fetch(videoStreamURL(stream.src, start), { cache: "no-store", signal: abort.signal });
+    if (!response.ok || !response.body) throw new Error(`video stream returned ${response.status}`);
+    if (lightboxVideoStreams.get(video) !== stream || generation !== stream.generation) return;
+    const duration = Number(response.headers.get("X-Video-Duration"));
+    if (Number.isFinite(duration) && duration > 0) {
+      stream.duration = duration;
+      stream.mediaSource.duration = duration;
+    }
+    stream.sourceBuffer.timestampOffset = start;
+    const reader = response.body.getReader();
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (lightboxVideoStreams.get(video) !== stream || generation !== stream.generation) return;
+      await appendVideoChunk(stream.sourceBuffer, value);
+      await trimVideoBuffer(stream.sourceBuffer, video.currentTime);
+    }
+    if (lightboxVideoStreams.get(video) === stream && generation === stream.generation && stream.mediaSource.readyState === "open" && !stream.sourceBuffer.updating) {
+      stream.mediaSource.endOfStream();
+    }
+  };
+
+  const streamVideo = async (video, src, autoplay = true) => {
+    stopVideoElement(video);
+    if (!window.MediaSource || !MediaSource.isTypeSupported(streamMimeType)) {
+      video.src = videoStreamURL(src, 0);
+      if (autoplay) await video.play();
+      return;
+    }
+
+    const mediaSource = new MediaSource();
+    const objectURL = URL.createObjectURL(mediaSource);
+    const stream = { abort: null, generation: 0, mediaSource, objectURL, sourceBuffer: null, src, stopped: false };
+    lightboxVideoStreams.set(video, stream);
+    video.src = objectURL;
+    if (autoplay) void video.play().catch(() => {});
+    const sourceBuffer = await new Promise((resolve, reject) => {
+      const fail = () => reject(new DOMException("video stream closed", "AbortError"));
+      const open = () => {
+        mediaSource.removeEventListener("sourceclose", fail);
+        try {
+          resolve(mediaSource.addSourceBuffer(streamMimeType));
+        } catch (error) {
+          reject(error);
+        }
+      };
+      mediaSource.addEventListener("sourceclose", fail, { once: true });
+      mediaSource.addEventListener("sourceopen", open, { once: true });
+    });
+    if (stream.stopped || lightboxVideoStreams.get(video) !== stream) return;
+    stream.sourceBuffer = sourceBuffer;
+    await pumpVideoStream(video, stream, 0);
+  };
+
+  const seekVideoStream = async (video, stream, start, autoplay) => {
+    stream.abort?.abort();
+    stream.generation += 1;
+    if (stream.mediaSource.readyState === "ended" && stream.duration) stream.mediaSource.duration = stream.duration;
+    if (stream.mediaSource.readyState === "open") stream.sourceBuffer.abort();
+    if (autoplay) void video.play().catch(() => {});
+    await pumpVideoStream(video, stream, start);
+  };
+
+  const isVideoTimeBuffered = (video, time) => {
+    for (let index = 0; index < video.buffered.length; index += 1) {
+      if (time >= video.buffered.start(index) && time <= video.buffered.end(index)) return true;
+    }
+    return false;
   };
 
   const clearLightboxImage = (image) => {
@@ -211,8 +340,9 @@
       clearLightboxImage(image);
       video.hidden = false;
       applySavedVideoVolume(video);
-      video.src = photo.dataset.photoSrc;
-      video.play().catch(() => {});
+      streamVideo(video, photo.dataset.photoSrc).catch((error) => {
+        if (error?.name !== "AbortError") console.error("video stream failed", error);
+      });
       return;
     }
     stopLightboxVideo(dialog);
@@ -356,6 +486,18 @@
   document.addEventListener("volumechange", (event) => {
     if (!event.target.matches?.("[data-lightbox-video]")) return;
     persistVideoVolume(event.target);
+  }, true);
+
+  document.addEventListener("seeking", (event) => {
+    const video = event.target;
+    if (!video.matches?.("[data-lightbox-video]")) return;
+    const stream = lightboxVideoStreams.get(video);
+    if (!stream || isVideoTimeBuffered(video, video.currentTime)) return;
+    const upperBound = stream.duration ? Math.max(0, stream.duration - 0.25) : video.currentTime;
+    const target = Math.min(video.currentTime, upperBound);
+    seekVideoStream(video, stream, target, !video.paused).catch((error) => {
+      if (error?.name !== "AbortError") console.error("video seek failed", error);
+    });
   }, true);
 
   document.addEventListener("change", (event) => {

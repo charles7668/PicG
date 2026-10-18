@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -40,6 +41,7 @@ func TestRoutesBrowseAndServePictures(t *testing.T) {
 		{path: "/", status: http.StatusOK, want: "gallery-sort", contentType: "text/html"},
 		{path: "/assets/app.js", status: http.StatusOK, want: "ArrowLeft", contentType: "text/javascript"},
 		{path: "/assets/app.js", status: http.StatusOK, want: "setLightboxZoom", contentType: "text/javascript"},
+		{path: "/assets/app.js", status: http.StatusOK, want: "MediaSource", contentType: "text/javascript"},
 		{path: "/gallery?path=Trips", status: http.StatusOK, want: "photo-placeholder", wantAbsent: "正在準備縮圖", contentType: "text/html"},
 		{path: "/gallery?path=Trips&q=missing", status: http.StatusOK, want: "找不到符合的項目", contentType: "text/html"},
 		{path: "/gallery/thumbnails?path=Trips", status: http.StatusOK, want: "sunset", contentType: "text/html"},
@@ -102,6 +104,69 @@ func TestThumbnailServesImmutableCache(t *testing.T) {
 	}
 	if contentType := second.Header().Get("Content-Type"); !strings.Contains(contentType, "image/jpeg") {
 		t.Fatalf("expected jpeg, got %q", contentType)
+	}
+}
+
+func TestVideoSupportsInlineRangeRequests(t *testing.T) {
+	root := t.TempDir()
+	video := []byte("fake-mp4-video-content")
+	if err := os.WriteFile(filepath.Join(root, "clip.mp4"), video, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	handler := routesWithRoot(root)
+	request := httptest.NewRequest(http.MethodGet, "/media/clip.mp4", nil)
+	request.Header.Set("Range", "bytes=5-11")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusPartialContent {
+		t.Fatalf("expected status 206, got %d", recorder.Code)
+	}
+	if got := recorder.Header().Get("Content-Type"); got != "video/mp4" {
+		t.Fatalf("expected video/mp4, got %q", got)
+	}
+	if got := recorder.Header().Get("Content-Disposition"); got != "inline" {
+		t.Fatalf("expected inline content disposition, got %q", got)
+	}
+	if got := recorder.Header().Get("Accept-Ranges"); got != "bytes" {
+		t.Fatalf("expected byte ranges, got %q", got)
+	}
+	if got := recorder.Header().Get("Content-Range"); got != "bytes 5-11/22" {
+		t.Fatalf("unexpected content range %q", got)
+	}
+	if got := recorder.Body.String(); got != string(video[5:12]) {
+		t.Fatalf("unexpected range body %q", got)
+	}
+}
+
+func TestVideoRouteStreamsFFmpegMP4(t *testing.T) {
+	binary, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("FFmpeg is not installed in this test environment")
+	}
+	root := t.TempDir()
+	input := filepath.Join(root, "clip.mkv")
+	command := exec.Command(binary, "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=blue:s=32x32:d=1", "-c:v", "mpeg4", "-y", input)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("create video fixture: %v: %s", err, output)
+	}
+	handler := routesWithRoot(root)
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/video/clip.mkv?start=0.5", nil))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if got := recorder.Header().Get("Content-Type"); got != "video/mp4" {
+		t.Fatalf("expected video/mp4, got %q", got)
+	}
+	if got := recorder.Header().Get("X-Video-Duration"); got == "" {
+		t.Fatal("expected video duration header")
+	}
+	if !strings.Contains(recorder.Body.String(), "ftyp") || !strings.Contains(recorder.Body.String(), "moof") {
+		t.Fatal("expected fragmented MP4 output")
 	}
 }
 

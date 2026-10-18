@@ -165,7 +165,7 @@ func (b *Browser) Browse(rawPath, query, sortKey string) PageData {
 		data.Photos = append(data.Photos, Photo{
 			Name:         strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name())),
 			Path:         entryPath,
-			URL:          mediaURL(entryPath),
+			URL:          mediaURL(entryPath, kind),
 			ThumbnailURL: thumbnailURL(entryPath, kind, entryInfo),
 			Kind:         kind,
 			Modified:     formatDate(entryInfo.ModTime()),
@@ -459,12 +459,16 @@ func galleryHref(rel, query string) string {
 	return "/"
 }
 
-func mediaURL(rel string) string {
+func mediaURL(rel, kind string) string {
 	parts := strings.Split(rel, "/")
 	for i := range parts {
 		parts[i] = url.PathEscape(parts[i])
 	}
-	return "/media/" + strings.Join(parts, "/")
+	prefix := "/media/"
+	if kind == "video" {
+		prefix = "/video/"
+	}
+	return prefix + strings.Join(parts, "/")
 }
 
 func coverURL(rel string, modified time.Time) string {

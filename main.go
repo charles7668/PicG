@@ -4,8 +4,10 @@ import (
 	"context"
 	"embed"
 	"errors"
+	"io"
 	"io/fs"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -117,7 +119,45 @@ func routesWithStorage(root, configPath, databasePath, thumbnailDir string, clea
 		}
 		defer file.Close()
 		w.Header().Set("Cache-Control", "private, max-age=3600")
+		w.Header().Set("Content-Disposition", "inline")
 		http.ServeContent(w, r, info.Name(), info.ModTime(), file)
+	})
+	mux.HandleFunc("GET /video/{path...}", func(w http.ResponseWriter, r *http.Request) {
+		input, _, err := browser.ResolveVideo(r.PathValue("path"))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		start, err := strconv.ParseFloat(r.URL.Query().Get("start"), 64)
+		if err != nil || start < 0 || math.IsNaN(start) || math.IsInf(start, 0) {
+			start = 0
+		}
+		duration, durationErr := ffmpeg.Duration(r.Context(), input)
+		if durationErr == nil {
+			if start >= duration {
+				start = 0
+			}
+			w.Header().Set("X-Video-Duration", strconv.FormatFloat(duration, 'f', 3, 64))
+		} else {
+			log.Printf("video duration %q: %v", input, durationErr)
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Content-Disposition", "inline")
+		w.Header().Set("Content-Type", "video/mp4")
+		w.Header().Set("X-Accel-Buffering", "no")
+		output := &countingWriter{writer: w}
+		if err := ffmpeg.StreamMP4(r.Context(), input, start, output); err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return
+			}
+			log.Printf("video stream %q: %v", input, err)
+			if output.written == 0 {
+				w.Header().Del("Content-Disposition")
+				w.Header().Del("Content-Type")
+				w.Header().Set("Cache-Control", "no-store")
+				http.Error(w, "unable to stream video", http.StatusServiceUnavailable)
+			}
+		}
 	})
 	mux.HandleFunc("GET /cover-original", func(w http.ResponseWriter, r *http.Request) {
 		file, info, err := browser.OpenCover(r.URL.Query().Get("path"))
@@ -261,6 +301,20 @@ func cleanupAfterIdle(next http.Handler, idle time.Duration, cleanup func()) htt
 
 func render(w http.ResponseWriter, r *http.Request, c templ.Component) {
 	renderStatus(w, r, http.StatusOK, c)
+}
+
+type countingWriter struct {
+	writer  io.Writer
+	written int64
+}
+
+func (w *countingWriter) Write(p []byte) (int, error) {
+	n, err := w.writer.Write(p)
+	w.written += int64(n)
+	if flusher, ok := w.writer.(http.Flusher); ok {
+		flusher.Flush()
+	}
+	return n, err
 }
 
 func renderStatus(w http.ResponseWriter, r *http.Request, status int, c templ.Component) {

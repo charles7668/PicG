@@ -31,7 +31,7 @@ func TestBrowseUsesDirectoryStructure(t *testing.T) {
 	}
 	var foundVideo bool
 	for _, media := range data.Photos {
-		if media.Name == "片段" && media.Kind == "video" && strings.HasPrefix(media.ThumbnailURL, "/thumbnail?") && strings.Contains(media.ThumbnailURL, "v=") {
+		if media.Name == "片段" && media.Kind == "video" && strings.HasPrefix(media.URL, "/video/") && strings.HasPrefix(media.ThumbnailURL, "/thumbnail?") && strings.Contains(media.ThumbnailURL, "v=") {
 			foundVideo = true
 		}
 	}
