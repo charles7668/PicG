@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -24,7 +25,22 @@ var videoExtensions = map[string]struct{}{
 }
 
 type Browser struct {
-	root string
+	root       string
+	mediaMu    sync.Mutex
+	mediaCache map[mediaCacheKey]mediaCacheEntry
+	mediaScan  map[mediaCacheKey]struct{}
+}
+
+type mediaCacheKey struct {
+	root   string
+	query  string
+	filter string
+}
+
+type mediaCacheEntry struct {
+	kinds     map[string]uint8
+	createdAt time.Time
+	complete  bool
 }
 
 type Breadcrumb struct {
@@ -64,6 +80,8 @@ type PageData struct {
 	ParentHref    string
 	Query         string
 	Sort          string
+	MediaFilter   string
+	FilterPending bool
 	Breadcrumbs   []Breadcrumb
 	Directories   []Directory
 	Photos        []Photo
@@ -89,7 +107,7 @@ func NewBrowser(root string) *Browser {
 	if root == "" {
 		root = "/app/pic"
 	}
-	return &Browser{root: filepath.Clean(root)}
+	return &Browser{root: filepath.Clean(root), mediaCache: make(map[mediaCacheKey]mediaCacheEntry), mediaScan: make(map[mediaCacheKey]struct{})}
 }
 
 func (b *Browser) Root() string {
@@ -97,8 +115,14 @@ func (b *Browser) Root() string {
 }
 
 func (b *Browser) Browse(rawPath, query, sortKey string) PageData {
+	return b.BrowseFiltered(rawPath, query, sortKey, "all")
+}
+
+// BrowseFiltered lists the current directory and optionally filters child
+// folders by whether their trees contain image or video files.
+func (b *Browser) BrowseFiltered(rawPath, query, sortKey, mediaFilter string) PageData {
 	rel, err := cleanRelativePath(rawPath)
-	data := PageData{Root: b.root, CurrentPath: rel, Query: strings.TrimSpace(query), Sort: normalizeSort(sortKey)}
+	data := PageData{Root: b.root, CurrentPath: rel, Query: strings.TrimSpace(query), Sort: normalizeSort(sortKey), MediaFilter: normalizeMediaFilter(mediaFilter)}
 	if err != nil {
 		data.Error = "無效的目錄路徑"
 		return data
@@ -174,6 +198,18 @@ func (b *Browser) Browse(rawPath, query, sortKey string) PageData {
 			sizeBytes:    entryInfo.Size(),
 		})
 	}
+	if data.MediaFilter != "all" && len(data.Directories) > 0 {
+		mediaByDirectory, ready := b.directoryMediaKindsCached(absolute, data.Query, data.MediaFilter, data.Directories)
+		data.FilterPending = !ready
+		filtered := data.Directories[:0]
+		for _, directory := range data.Directories {
+			kinds := mediaByDirectory[directory.Name]
+			if (data.MediaFilter == "image" && kinds&1 != 0) || (data.MediaFilter == "video" && kinds&2 != 0) {
+				filtered = append(filtered, directory)
+			}
+		}
+		data.Directories = filtered
+	}
 
 	sort.SliceStable(data.Directories, func(i, j int) bool {
 		return lessEntry(data.Sort, data.Directories[i].Name, data.Directories[j].Name, data.Directories[i].modifiedAt, data.Directories[j].modifiedAt, data.Directories[i].sizeBytes, data.Directories[j].sizeBytes)
@@ -182,6 +218,152 @@ func (b *Browser) Browse(rawPath, query, sortKey string) PageData {
 		return lessEntry(data.Sort, data.Photos[i].Name, data.Photos[j].Name, data.Photos[i].modifiedAt, data.Photos[j].modifiedAt, data.Photos[i].sizeBytes, data.Photos[j].sizeBytes)
 	})
 	return data
+}
+
+// directoryMediaKindsCached schedules a shallow scan of only the visible child
+// folders. Results are reused briefly so changing the filter stays responsive.
+func (b *Browser) directoryMediaKindsCached(root, query, mediaFilter string, directories []Directory) (map[string]uint8, bool) {
+	key := mediaCacheKey{root: root, query: query, filter: mediaFilter}
+	b.mediaMu.Lock()
+	if cached, ok := b.mediaCache[key]; ok && cached.complete && time.Since(cached.createdAt) < time.Minute {
+		b.mediaMu.Unlock()
+		return cached.kinds, true
+	}
+	if _, scanning := b.mediaScan[key]; scanning {
+		partial := cloneMediaKinds(b.mediaCache[key].kinds)
+		b.mediaMu.Unlock()
+		return partial, false
+	}
+	b.mediaScan[key] = struct{}{}
+	visibleDirectories := make([]string, len(directories))
+	for i, directory := range directories {
+		visibleDirectories[i] = directory.Name
+	}
+	b.mediaCache[key] = mediaCacheEntry{kinds: make(map[string]uint8), createdAt: time.Now()}
+	b.mediaMu.Unlock()
+
+	go func() {
+		kinds := directoryMediaKinds(root, visibleDirectories, mediaFilter, func(name string, kind uint8) {
+			b.mediaMu.Lock()
+			cached := b.mediaCache[key]
+			cached.kinds[name] = kind
+			b.mediaCache[key] = cached
+			b.mediaMu.Unlock()
+		})
+		b.mediaMu.Lock()
+		b.mediaCache[key] = mediaCacheEntry{kinds: kinds, createdAt: time.Now(), complete: true}
+		delete(b.mediaScan, key)
+		b.mediaMu.Unlock()
+	}()
+	return nil, false
+}
+
+func cloneMediaKinds(kinds map[string]uint8) map[string]uint8 {
+	clone := make(map[string]uint8, len(kinds))
+	for name, kind := range kinds {
+		clone[name] = kind
+	}
+	return clone
+}
+
+func normalizeMediaFilter(value string) string {
+	switch value {
+	case "image", "video":
+		return value
+	default:
+		return "all"
+	}
+}
+
+// directoryMediaKinds checks only folders currently shown in the gallery. For
+// each one it checks direct files first, then descends as needed, stopping as
+// soon as the requested media type is found.
+func directoryMediaKinds(root string, directories []string, mediaFilter string, onMatch func(string, uint8)) map[string]uint8 {
+	kinds := make(map[string]uint8)
+	wantedKind := uint8(1)
+	if mediaFilter == "video" {
+		wantedKind = 2
+	}
+	jobs := make(chan string)
+	results := make(chan struct {
+		name string
+		kind uint8
+	}, len(directories))
+	workerCount := min(8, len(directories))
+	var workers sync.WaitGroup
+	workers.Add(workerCount)
+	for range workerCount {
+		go func() {
+			defer workers.Done()
+			for name := range jobs {
+				kind := uint8(0)
+				if directoryContainsMedia(filepath.Join(root, name), wantedKind) {
+					kind = wantedKind
+				}
+				if kind != 0 {
+					onMatch(name, kind)
+				}
+				results <- struct {
+					name string
+					kind uint8
+				}{name: name, kind: kind}
+			}
+		}()
+	}
+	go func() {
+		for _, name := range directories {
+			jobs <- name
+		}
+		close(jobs)
+		workers.Wait()
+		close(results)
+	}()
+	for result := range results {
+		kinds[result.name] = result.kind
+	}
+	return kinds
+}
+
+func directoryContainsMedia(directory string, wanted uint8) bool {
+	info, err := os.Lstat(directory)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return false
+	}
+	file, err := os.Open(directory)
+	if err != nil {
+		return false
+	}
+	var subdirectories []string
+	for {
+		entries, readErr := file.ReadDir(64)
+		for _, entry := range entries {
+			if strings.HasPrefix(entry.Name(), ".") || entry.Type()&os.ModeSymlink != 0 {
+				continue
+			}
+			if entry.IsDir() {
+				subdirectories = append(subdirectories, entry.Name())
+				continue
+			}
+			matches := (wanted&1 != 0 && isImage(entry.Name())) || (wanted&2 != 0 && isVideo(entry.Name()))
+			if matches {
+				info, infoErr := entry.Info()
+				if infoErr == nil && info.Mode().IsRegular() {
+					file.Close()
+					return true
+				}
+			}
+		}
+		if readErr != nil || len(entries) == 0 {
+			break
+		}
+	}
+	file.Close()
+	for _, name := range subdirectories {
+		if directoryContainsMedia(filepath.Join(directory, name), wanted) {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeSort(raw string) string {

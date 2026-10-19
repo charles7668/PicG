@@ -59,6 +59,9 @@ button { cursor: pointer; }
 .gallery-toolbar h1 { margin: 0; font-size: 25px; font-weight: 500; letter-spacing: -.5px; }
 .gallery-toolbar p { margin: 6px 0 0; color: var(--muted); font-size: 11px; }
 .toolbar-actions { display: flex; align-items: center; gap: 8px; }
+.filter-box { display: flex; align-items: center; gap: 7px; height: 36px; padding: 0 9px; border: 1px solid var(--line); border-radius: 5px; color: var(--muted); background: var(--panel); font-size: 11px; }
+.filter-box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent); }
+.filter-box select { max-width: 88px; height: 100%; border: 0; outline: 0; color: var(--text); background: transparent; font-size: 12px; }
 .search-box { display: flex; align-items: center; gap: 8px; width: 260px; height: 36px; padding: 0 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 5px; background: var(--panel); transition: border-color .15s, box-shadow .15s; }
 .search-box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent); }
 .search-box input { width: 100%; border: 0; outline: 0; background: transparent; font-size: 12px; }
@@ -115,6 +118,7 @@ button { cursor: pointer; }
 .folder-empty { color: var(--muted); border: 1px solid var(--line); background: var(--panel-soft); }
 .state-panel h2 { margin: 0 0 8px; color: var(--text); font-size: 17px; font-weight: 500; }
 .state-panel p { margin: 0; font-size: 12px; line-height: 1.7; }
+.filter-loading .loader-dot { margin-bottom: 5px; }
 .state-panel code { padding: 2px 5px; border-radius: 3px; color: var(--text); background: var(--panel-soft); }
 
 .lightbox { width: 100vw; max-width: none; height: 100vh; max-height: none; margin: 0; padding: 0; border: 0; color: #fff; background: rgba(8,10,12,.96); overscroll-behavior: none; touch-action: none; }
@@ -187,7 +191,8 @@ button { cursor: pointer; }
   .content-shell { width: min(100% - 24px, 1480px); padding-top: 12px; }
   .gallery-toolbar { display: block; }
   .toolbar-actions { margin-top: 17px; }
-  .search-box, .sort-box { width: 100%; }
+  .filter-box, .search-box, .sort-box { width: 100%; }
+  .filter-box select { flex: 1; max-width: none; }
   .sort-box select { width: 100%; }
   .folder-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .folder-cover { height: 95px; }

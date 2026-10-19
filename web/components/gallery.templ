@@ -2,6 +2,8 @@ package components
 
 import (
 	"fmt"
+	"net/url"
+	"strings"
 	"git.charleshnas.dscloud.me/charles7668/PicG/internal/gallery"
 )
 
@@ -65,7 +67,7 @@ templ GalleryContent(data gallery.PageData) {
 				if index > 0 {
 					<span>/</span>
 				}
-				<a href={ templ.URL(crumb.Href) } hx-get={ galleryFragmentURL(crumb.Href) } hx-target="#gallery-content" hx-push-url={ crumb.Href }>{ crumb.Name }</a>
+				<a href={ templ.URL(galleryFilterHref(crumb.Href, data.MediaFilter)) } hx-get={ galleryFilterHref(galleryFragmentURL(crumb.Href), data.MediaFilter) } hx-target="#gallery-content" hx-push-url={ galleryFilterHref(crumb.Href, data.MediaFilter) }>{ crumb.Name }</a>
 			}
 		</nav>
 		<section class="gallery-toolbar">
@@ -74,12 +76,32 @@ templ GalleryContent(data gallery.PageData) {
 				<p>{ fmt.Sprintf("%d 個資料夾 · %d 個媒體", len(data.Directories), len(data.Photos)) }</p>
 			</div>
 			<div class="toolbar-actions">
+				<label class="filter-box">
+					<span>篩選</span>
+					<select id="gallery-media-filter" name="media" aria-label="依資料夾中的媒體類型篩選" hx-get="/gallery" hx-trigger="change" hx-target="#gallery-content" hx-include="this, #current-path, .search-box input, #gallery-sort">
+						if data.MediaFilter == "all" {
+							<option value="all" selected>全部</option>
+						} else {
+							<option value="all">全部</option>
+						}
+						if data.MediaFilter == "image" {
+							<option value="image" selected>含圖片</option>
+						} else {
+							<option value="image">含圖片</option>
+						}
+						if data.MediaFilter == "video" {
+							<option value="video" selected>含影片</option>
+						} else {
+							<option value="video">含影片</option>
+						}
+					</select>
+				</label>
 				<label class="search-box">
 					<span>⌕</span>
-					<input type="search" name="q" value={ data.Query } placeholder="搜尋目前目錄" hx-get="/gallery" hx-trigger="input changed delay:250ms, search" hx-target="#gallery-content" hx-include="#current-path, #gallery-sort"/>
+					<input type="search" name="q" value={ data.Query } placeholder="搜尋目前目錄" hx-get="/gallery" hx-trigger="input changed delay:250ms, search" hx-target="#gallery-content" hx-include="#current-path, #gallery-sort, #gallery-media-filter"/>
 				</label>
 				<label class="sort-box">
-					<select id="gallery-sort" name="sort" aria-label="排序" hx-get="/gallery" hx-trigger="change" hx-target="#gallery-content" hx-include="#current-path, .search-box input">
+					<select id="gallery-sort" name="sort" aria-label="排序" hx-get="/gallery" hx-trigger="change" hx-target="#gallery-content" hx-include="#current-path, .search-box input, #gallery-media-filter">
 						for _, option := range gallery.SortOptions {
 							if data.Sort == option.Value {
 								<option value={ option.Value } selected>{ option.Label }</option>
@@ -101,9 +123,18 @@ templ GalleryContent(data gallery.PageData) {
 					<p>請將相片資料夾掛載至 <code>{ data.Root }</code>，或透過 <code>PIC_DIR</code> 指定路徑。</p>
 				}
 			</section>
+		} else if data.FilterPending {
+			<section class="state-panel filter-loading" data-filter-pending hx-get={ galleryRefreshURL(data) } hx-trigger="load delay:300ms" hx-target="#gallery-content">
+				<span class="loader-dot"></span>
+				<h2>正在篩選資料夾</h2>
+				<p>符合的資料夾會先顯示；會先檢查直接檔案，再往子資料夾尋找。</p>
+			</section>
+			if len(data.Directories) > 0 || len(data.Photos) > 0 {
+				@ThumbnailGrid(data)
+			}
 		} else if len(data.Directories) == 0 && len(data.Photos) == 0 {
 			<section class="state-panel">
-				if data.Query != "" {
+				if data.Query != "" || data.MediaFilter != "all" {
 					<span class="state-icon folder-empty">⌕</span>
 					<h2>找不到符合的項目</h2>
 					<p>請嘗試不同的檔名或資料夾名稱。</p>
@@ -126,7 +157,7 @@ templ ThumbnailGrid(data gallery.PageData) {
 				<div class="section-heading"><h2>資料夾預覽</h2><span>{ fmt.Sprint(len(data.Directories)) }</span></div>
 				<div class="folder-grid">
 					for _, directory := range data.Directories {
-						<a class="folder-card" href={ templ.URL(directory.Href) } title={ directory.Name } hx-get={ galleryFragmentURL(directory.Href) } hx-target="#gallery-content" hx-push-url={ directory.Href }>
+						<a class="folder-card" href={ templ.URL(galleryFilterHref(directory.Href, data.MediaFilter)) } title={ directory.Name } hx-get={ galleryFilterHref(galleryFragmentURL(directory.Href), data.MediaFilter) } hx-target="#gallery-content" hx-push-url={ galleryFilterHref(directory.Href, data.MediaFilter) }>
 							<div class="folder-cover">
 								<span class="folder-placeholder">▰</span><img src={ directory.CoverURL } alt="" decoding="async" data-folder-cover data-thumbnail/><span class="folder-tab"></span>
 							</div>
@@ -165,6 +196,26 @@ func galleryFragmentURL(href string) string {
 		return "/gallery"
 	}
 	return "/gallery" + href[1:]
+}
+
+func galleryFilterHref(href, mediaFilter string) string {
+	if mediaFilter == "all" || mediaFilter == "" {
+		return href
+	}
+	separator := "?"
+	if strings.Contains(href, "?") {
+		separator = "&"
+	}
+	return href + separator + "media=" + mediaFilter
+}
+
+func galleryRefreshURL(data gallery.PageData) string {
+	values := url.Values{}
+	values.Set("path", data.CurrentPath)
+	values.Set("q", data.Query)
+	values.Set("sort", data.Sort)
+	values.Set("media", data.MediaFilter)
+	return "/gallery?" + values.Encode()
 }
 
 func directorySummary(directory gallery.Directory) string {

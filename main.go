@@ -94,7 +94,7 @@ func routesWithStorage(root, configPath, databasePath, thumbnailDir string, clea
 	}
 	mux.Handle("GET /assets/", http.StripPrefix("/", http.FileServer(http.FS(assets))))
 	browse := func(r *http.Request) gallery.PageData {
-		data := browser.Browse(r.URL.Query().Get("path"), r.URL.Query().Get("q"), requestSort(r))
+		data := browser.BrowseFiltered(r.URL.Query().Get("path"), r.URL.Query().Get("q"), requestSort(r), r.URL.Query().Get("media"))
 		thumbnailQueue.Focus(data.CurrentPath)
 		return data
 	}

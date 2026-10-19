@@ -11,6 +11,8 @@ import templruntime "github.com/a-h/templ/runtime"
 import (
 	"fmt"
 	"git.charleshnas.dscloud.me/charles7668/PicG/internal/gallery"
+	"net/url"
+	"strings"
 )
 
 func Page(data gallery.PageData) templ.Component {
@@ -100,7 +102,7 @@ func GalleryContent(data gallery.PageData) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var4 templ.SafeURL
-			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(crumb.Href))
+			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(galleryFilterHref(crumb.Href, data.MediaFilter)))
 			if templ_7745c5c3_Err != nil {
 				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 68, Col: 35}
 			}
@@ -113,7 +115,7 @@ func GalleryContent(data gallery.PageData) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var5 string
-			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.ResolveAttributeValue(galleryFragmentURL(crumb.Href))
+			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.ResolveAttributeValue(galleryFilterHref(galleryFragmentURL(crumb.Href), data.MediaFilter))
 			if templ_7745c5c3_Err != nil {
 				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 68, Col: 77}
 			}
@@ -126,7 +128,7 @@ func GalleryContent(data gallery.PageData) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var6 string
-			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.ResolveAttributeValue(crumb.Href)
+			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.ResolveAttributeValue(galleryFilterHref(crumb.Href, data.MediaFilter))
 			if templ_7745c5c3_Err != nil {
 				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 68, Col: 133}
 			}
@@ -178,7 +180,21 @@ func GalleryContent(data gallery.PageData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "</p></div><div class=\"toolbar-actions\"><label class=\"search-box\"><span>⌕</span> <input type=\"search\" name=\"q\" value=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "</p></div><div class=\"toolbar-actions\"><label class=\"filter-box\"><span>篩選</span> <select id=\"gallery-media-filter\" name=\"media\" aria-label=\"依資料夾中的媒體類型篩選\" hx-get=\"/gallery\" hx-trigger=\"change\" hx-target=\"#gallery-content\" hx-include=\"this, #current-path, .search-box input, #gallery-sort\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		for _, option := range []struct{ value, label string }{{"all", "全部"}, {"image", "含圖片"}, {"video", "含影片"}} {
+			selected := ""
+			if data.MediaFilter == option.value {
+				selected = " selected"
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString("<option value=\"" + option.value + "\"" + selected + ">" + option.label + "</option>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "</select></label><label class=\"search-box\"><span>⌕</span> <input type=\"search\" name=\"q\" value=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -191,7 +207,7 @@ func GalleryContent(data gallery.PageData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "\" placeholder=\"搜尋目前目錄\" hx-get=\"/gallery\" hx-trigger=\"input changed delay:250ms, search\" hx-target=\"#gallery-content\" hx-include=\"#current-path, #gallery-sort\"></label> <label class=\"sort-box\"><select id=\"gallery-sort\" name=\"sort\" aria-label=\"排序\" hx-get=\"/gallery\" hx-trigger=\"change\" hx-target=\"#gallery-content\" hx-include=\"#current-path, .search-box input\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "\" placeholder=\"搜尋目前目錄\" hx-get=\"/gallery\" hx-trigger=\"input changed delay:250ms, search\" hx-target=\"#gallery-content\" hx-include=\"#current-path, #gallery-sort, #gallery-media-filter\"></label> <label class=\"sort-box\"><select id=\"gallery-sort\" name=\"sort\" aria-label=\"排序\" hx-get=\"/gallery\" hx-trigger=\"change\" hx-target=\"#gallery-content\" hx-include=\"#current-path, .search-box input, #gallery-media-filter\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -318,12 +334,36 @@ func GalleryContent(data gallery.PageData) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
+		} else if data.FilterPending {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "<section class=\"state-panel filter-loading\" data-filter-pending hx-get=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var filterRefreshURL string
+			filterRefreshURL, templ_7745c5c3_Err = templ.ResolveAttributeValue(galleryRefreshURL(data))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(filterRefreshURL)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "\" hx-trigger=\"load delay:300ms\" hx-target=\"#gallery-content\"><span class=\"loader-dot\"></span><h2>正在篩選資料夾</h2><p>符合的資料夾會先顯示；會先檢查直接檔案，再往子資料夾尋找。</p></section>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			if len(data.Directories) > 0 || len(data.Photos) > 0 {
+				templ_7745c5c3_Err = ThumbnailGrid(data).Render(ctx, templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			}
 		} else if len(data.Directories) == 0 && len(data.Photos) == 0 {
 			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "<section class=\"state-panel\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			if data.Query != "" {
+			if data.Query != "" || data.MediaFilter != "all" {
 				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "<span class=\"state-icon folder-empty\">⌕</span><h2>找不到符合的項目</h2><p>請嘗試不同的檔名或資料夾名稱。</p>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
@@ -401,7 +441,7 @@ func ThumbnailGrid(data gallery.PageData) templ.Component {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var20 templ.SafeURL
-				templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(directory.Href))
+				templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(galleryFilterHref(directory.Href, data.MediaFilter)))
 				if templ_7745c5c3_Err != nil {
 					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 129, Col: 61}
 				}
@@ -427,7 +467,7 @@ func ThumbnailGrid(data gallery.PageData) templ.Component {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var21 string
-				templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.ResolveAttributeValue(galleryFragmentURL(directory.Href))
+				templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.ResolveAttributeValue(galleryFilterHref(galleryFragmentURL(directory.Href), data.MediaFilter))
 				if templ_7745c5c3_Err != nil {
 					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 129, Col: 107}
 				}
@@ -440,7 +480,7 @@ func ThumbnailGrid(data gallery.PageData) templ.Component {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var22 string
-				templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.ResolveAttributeValue(directory.Href)
+				templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.ResolveAttributeValue(galleryFilterHref(directory.Href, data.MediaFilter))
 				if templ_7745c5c3_Err != nil {
 					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/components/gallery.templ`, Line: 129, Col: 167}
 				}
@@ -744,6 +784,26 @@ func galleryFragmentURL(href string) string {
 		return "/gallery"
 	}
 	return "/gallery" + href[1:]
+}
+
+func galleryFilterHref(href, mediaFilter string) string {
+	if mediaFilter == "all" || mediaFilter == "" {
+		return href
+	}
+	separator := "?"
+	if strings.Contains(href, "?") {
+		separator = "&"
+	}
+	return href + separator + "media=" + mediaFilter
+}
+
+func galleryRefreshURL(data gallery.PageData) string {
+	values := url.Values{}
+	values.Set("path", data.CurrentPath)
+	values.Set("q", data.Query)
+	values.Set("sort", data.Sort)
+	values.Set("media", data.MediaFilter)
+	return "/gallery?" + values.Encode()
 }
 
 func directorySummary(directory gallery.Directory) string {
