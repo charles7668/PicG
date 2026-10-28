@@ -4,11 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 
 	_ "modernc.org/sqlite"
 )
+
+const maxOpenConnections = 8
 
 type migration struct {
 	version int
@@ -43,14 +46,27 @@ func Open(path string) (*sql.DB, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, fmt.Errorf("create database directory: %w", err)
 	}
-	db, err := sql.Open("sqlite", path)
+	databasePath := filepath.ToSlash(path)
+	if filepath.VolumeName(path) != "" && databasePath != "" && databasePath[0] != '/' {
+		databasePath = "/" + databasePath
+	}
+	dsn := url.URL{Scheme: "file", Path: databasePath}
+	parameters := dsn.Query()
+	parameters.Set("_busy_timeout", "5000")
+	parameters.Set("_foreign_keys", "on")
+	parameters.Set("_journal_mode", "wal")
+	dsn.RawQuery = parameters.Encode()
+
+	db, err := sql.Open("sqlite", dsn.String())
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
-	// A single connection keeps connection-local PRAGMAs deterministic. WAL still
-	// allows readers in other PicG processes while a writer is active.
-	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;`); err != nil {
+	// The DSN applies connection-local PRAGMAs to every connection in the pool.
+	// Keep all eight connections idle so bursts of thumbnail reads can reuse
+	// them instead of repeatedly opening SQLite connections.
+	db.SetMaxOpenConns(maxOpenConnections)
+	db.SetMaxIdleConns(maxOpenConnections)
+	if err := db.Ping(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("configure database: %w", err)
 	}
