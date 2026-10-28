@@ -33,11 +33,12 @@ type mapping struct {
 }
 
 type Store struct {
-	db   *sql.DB
-	dir  string
-	hash func(string) string
-	mu   sync.Mutex
-	now  func() time.Time
+	db        *sql.DB
+	dir       string
+	hash      func(string) string
+	mu        sync.Mutex
+	cleanupMu sync.Mutex
+	now       func() time.Time
 }
 
 func NewStore(db *sql.DB, dir string) (*Store, error) {
@@ -297,8 +298,11 @@ func (s *Store) render(output string, generate func(string) error) error {
 // Cleanup removes mappings whose source file no longer exists, then removes
 // orphaned JPEGs that are not referenced by the database.
 func (s *Store) Cleanup(ctx context.Context) (int, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	// Cleanup calls may scan in parallel with cache reads and generation. Only
+	// serialize cleanups with each other; s.mu is acquired below for the short
+	// check-and-delete sections that must not race with GetOrCreate.
+	s.cleanupMu.Lock()
+	defer s.cleanupMu.Unlock()
 
 	rows, err := s.db.QueryContext(ctx, `SELECT id, source_file_path, file_name FROM thumbnail_mappings`)
 	if err != nil {
@@ -328,12 +332,38 @@ func (s *Store) Cleanup(ctx context.Context) (int, error) {
 		if !errors.Is(statErr, fs.ErrNotExist) {
 			continue
 		}
+
+		// The mapping or source may have changed since the unlocked scan. Check
+		// both again while cache mutations are excluded before removing either.
+		s.mu.Lock()
+		var source, fileName string
+		err := s.db.QueryRowContext(ctx, `
+SELECT source_file_path, file_name FROM thumbnail_mappings WHERE id=?`, item.id).Scan(&source, &fileName)
+		if errors.Is(err, sql.ErrNoRows) {
+			s.mu.Unlock()
+			continue
+		}
+		if err != nil {
+			s.mu.Unlock()
+			return removed, err
+		}
+		if source != item.source || fileName != item.fileName {
+			s.mu.Unlock()
+			continue
+		}
+		if _, err := os.Stat(source); !errors.Is(err, fs.ErrNotExist) {
+			s.mu.Unlock()
+			continue
+		}
 		if _, err := s.db.ExecContext(ctx, `DELETE FROM thumbnail_mappings WHERE id=?`, item.id); err != nil {
+			s.mu.Unlock()
 			return removed, err
 		}
-		if err := os.Remove(filepath.Join(s.dir, item.fileName)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		if err := os.Remove(filepath.Join(s.dir, fileName)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			s.mu.Unlock()
 			return removed, err
 		}
+		s.mu.Unlock()
 		removed++
 	}
 
@@ -364,9 +394,25 @@ func (s *Store) Cleanup(ctx context.Context) (int, error) {
 		if _, ok := referenced[entry.Name()]; ok {
 			continue
 		}
-		if err := os.Remove(filepath.Join(s.dir, entry.Name())); err != nil && !errors.Is(err, fs.ErrNotExist) {
+
+		// A thumbnail may have been reserved after the reference snapshot. Keep
+		// the final database check and file removal atomic with cache mutations.
+		s.mu.Lock()
+		var referencedNow int
+		err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM thumbnail_mappings WHERE file_name=?)`, entry.Name()).Scan(&referencedNow)
+		if err != nil {
+			s.mu.Unlock()
 			return removed, err
 		}
+		if referencedNow != 0 {
+			s.mu.Unlock()
+			continue
+		}
+		if err := os.Remove(filepath.Join(s.dir, entry.Name())); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			s.mu.Unlock()
+			return removed, err
+		}
+		s.mu.Unlock()
 		removed++
 	}
 	return removed, nil

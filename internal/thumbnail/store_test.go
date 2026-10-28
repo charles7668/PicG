@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"git.charleshnas.dscloud.me/charles7668/PicG/internal/database"
 )
@@ -175,6 +176,50 @@ func TestCleanupRemovesMissingSourcesAndOrphans(t *testing.T) {
 		if _, err := os.Stat(name); !os.IsNotExist(err) {
 			t.Fatalf("expected %q to be removed, got %v", name, err)
 		}
+	}
+}
+
+func TestCleanupScanDoesNotTakeStoreLock(t *testing.T) {
+	work := t.TempDir()
+	db, err := database.Open(filepath.Join(work, "app.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store, err := NewStore(db, filepath.Join(work, "thumbnails"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(work, "photo.jpg")
+	if err := os.WriteFile(source, []byte("source"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.GetOrCreate(context.Background(), Request{
+		Kind: "image", Identity: "photo.jpg", SourcePath: source, Info: info,
+	}, writeThumbnail("thumbnail")); err != nil {
+		t.Fatal(err)
+	}
+
+	store.mu.Lock()
+	done := make(chan error, 1)
+	go func() {
+		_, err := store.Cleanup(context.Background())
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		store.mu.Unlock()
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		store.mu.Unlock()
+		t.Fatal("cleanup scan blocked on the store-wide cache lock")
 	}
 }
 
