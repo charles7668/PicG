@@ -225,12 +225,12 @@ func TestMappingCacheEvictsLeastRecentlyUsed(t *testing.T) {
 		}
 	}
 
-	store.mu.RLock()
+	store.cacheMu.RLock()
 	_, firstCached := store.cache[mappingKey("image", requests[0].Identity)]
 	_, secondCached := store.cache[mappingKey("image", requests[1].Identity)]
 	_, thirdCached := store.cache[mappingKey("image", requests[2].Identity)]
 	cacheSize := len(store.cache)
-	store.mu.RUnlock()
+	store.cacheMu.RUnlock()
 	if cacheSize != 2 || !firstCached || secondCached || !thirdCached {
 		t.Fatalf("unexpected LRU contents: size=%d first=%v second=%v third=%v", cacheSize, firstCached, secondCached, thirdCached)
 	}
@@ -239,10 +239,10 @@ func TestMappingCacheEvictsLeastRecentlyUsed(t *testing.T) {
 	if _, ok, err := store.Lookup(context.Background(), requests[1]); err != nil || !ok {
 		t.Fatalf("evicted mapping did not reload: ok=%v err=%v", ok, err)
 	}
-	store.mu.RLock()
+	store.cacheMu.RLock()
 	_, reloaded := store.cache[mappingKey("image", requests[1].Identity)]
 	cacheSize = len(store.cache)
-	store.mu.RUnlock()
+	store.cacheMu.RUnlock()
 	if cacheSize != 2 || !reloaded {
 		t.Fatalf("reloaded mapping was not cached: size=%d cached=%v", cacheSize, reloaded)
 	}
@@ -274,7 +274,7 @@ func TestCacheReadsShareStoreLock(t *testing.T) {
 
 	// Holding one read lock must not block other cache hits. This would time out
 	// if either read path regressed to taking the exclusive Store lock.
-	store.mu.RLock()
+	store.cacheMu.RLock()
 	done := make(chan error, 2)
 	go func() {
 		_, ok, err := store.CachedFile(context.Background(), "image", "photo.jpg", info.ModTime().UnixNano(), info.Size(), true)
@@ -295,15 +295,59 @@ func TestCacheReadsShareStoreLock(t *testing.T) {
 		select {
 		case err := <-done:
 			if err != nil {
-				store.mu.RUnlock()
+				store.cacheMu.RUnlock()
 				t.Fatal(err)
 			}
 		case <-time.After(5 * time.Second):
-			store.mu.RUnlock()
+			store.cacheMu.RUnlock()
 			t.Fatal("cache read blocked on another reader")
 		}
 	}
-	store.mu.RUnlock()
+	store.cacheMu.RUnlock()
+}
+
+func TestGetOrCreateDifferentMappingsDoNotShareLock(t *testing.T) {
+	work := t.TempDir()
+	db, err := database.Open(filepath.Join(work, "app.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store, err := NewStore(db, filepath.Join(work, "thumbnails"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	makeRequest := func(name string) Request {
+		source := filepath.Join(work, name)
+		if err := os.WriteFile(source, []byte(name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		info, err := os.Stat(source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return Request{Kind: "image", Identity: name, SourcePath: source, Info: info}
+	}
+	blocked := makeRequest("blocked.jpg")
+	independent := makeRequest("independent.jpg")
+	unblock := store.lockMapping(mappingKey(blocked.Kind, blocked.Identity))
+	done := make(chan error, 1)
+	go func() {
+		_, err := store.GetOrCreate(context.Background(), independent, writeThumbnail("independent"))
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		unblock()
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		unblock()
+		t.Fatal("GetOrCreate for a different mapping waited on another mapping lock")
+	}
 }
 
 func TestCleanupRemovesMissingSourcesAndOrphans(t *testing.T) {
@@ -348,9 +392,9 @@ func TestCleanupRemovesMissingSourcesAndOrphans(t *testing.T) {
 			t.Fatalf("expected %q to be removed, got %v", name, err)
 		}
 	}
-	store.mu.RLock()
+	store.cacheMu.RLock()
 	_, mappingFound := store.cache[mappingKey("image", "gone.jpg")]
-	store.mu.RUnlock()
+	store.cacheMu.RUnlock()
 	if mappingFound {
 		t.Fatal("cleanup did not evict the removed mapping from memory")
 	}

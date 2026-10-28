@@ -38,19 +38,27 @@ type cachedMapping struct {
 	item mapping
 }
 
+type mappingLock struct {
+	mu   sync.Mutex
+	refs int
+}
+
 const defaultMappingCacheLimit = 4096
 
 type Store struct {
-	db         *sql.DB
-	dir        string
-	hash       func(string) string
-	mu         sync.RWMutex
-	cache      map[string]*list.Element
-	cacheLRU   *list.List
-	cacheLimit int
-	revision   uint64
-	cleanupMu  sync.Mutex
-	now        func() time.Time
+	db          *sql.DB
+	dir         string
+	hash        func(string) string
+	cacheMu     sync.RWMutex
+	cache       map[string]*list.Element
+	cacheLRU    *list.List
+	cacheLimit  int
+	revision    uint64
+	keyMu       sync.Mutex
+	keyLocks    map[string]*mappingLock
+	namespaceMu sync.Mutex
+	cleanupMu   sync.Mutex
+	now         func() time.Time
 }
 
 func NewStore(db *sql.DB, dir string) (*Store, error) {
@@ -68,9 +76,32 @@ func newStore(db *sql.DB, dir string, hash func(string) string) (*Store, error) 
 		cache:      make(map[string]*list.Element),
 		cacheLRU:   list.New(),
 		cacheLimit: defaultMappingCacheLimit,
+		keyLocks:   make(map[string]*mappingLock),
 		now:        time.Now,
 	}
 	return store, nil
+}
+
+func (s *Store) lockMapping(key string) func() {
+	s.keyMu.Lock()
+	lock := s.keyLocks[key]
+	if lock == nil {
+		lock = &mappingLock{}
+		s.keyLocks[key] = lock
+	}
+	lock.refs++
+	s.keyMu.Unlock()
+
+	lock.mu.Lock()
+	return func() {
+		lock.mu.Unlock()
+		s.keyMu.Lock()
+		lock.refs--
+		if lock.refs == 0 {
+			delete(s.keyLocks, key)
+		}
+		s.keyMu.Unlock()
+	}
 }
 
 func pathHash(value string) string {
@@ -115,22 +146,22 @@ func (s *Store) digestFor(request Request) (string, error) {
 }
 
 func (s *Store) cached(key string) (mapping, bool) {
-	s.mu.RLock()
+	s.cacheMu.RLock()
 	element, found := s.cache[key]
 	if !found {
-		s.mu.RUnlock()
+		s.cacheMu.RUnlock()
 		return mapping{}, false
 	}
 	item := element.Value.(cachedMapping).item
-	s.mu.RUnlock()
+	s.cacheMu.RUnlock()
 
 	// LRU promotion is best-effort so concurrent cache hits never queue behind
 	// each other merely to update recency metadata.
-	if s.mu.TryLock() {
+	if s.cacheMu.TryLock() {
 		if current, stillCached := s.cache[key]; stillCached && current == element {
 			s.cacheLRU.MoveToFront(element)
 		}
-		s.mu.Unlock()
+		s.cacheMu.Unlock()
 	}
 	return item, true
 }
@@ -141,34 +172,34 @@ func (s *Store) mappingFor(ctx context.Context, key, kind, identity string) (map
 			return item, true, nil
 		}
 
-		s.mu.RLock()
+		s.cacheMu.RLock()
 		revision := s.revision
-		s.mu.RUnlock()
+		s.cacheMu.RUnlock()
 		item, found, err := s.find(ctx, kind, identity)
 		if err != nil {
 			return mapping{}, false, err
 		}
 
-		s.mu.Lock()
+		s.cacheMu.Lock()
 		if element, cached := s.cache[key]; cached {
 			s.cacheLRU.MoveToFront(element)
 			item = element.Value.(cachedMapping).item
-			s.mu.Unlock()
+			s.cacheMu.Unlock()
 			return item, true, nil
 		}
 		if revision != s.revision {
-			s.mu.Unlock()
+			s.cacheMu.Unlock()
 			continue
 		}
 		if found {
 			s.cacheMappingLocked(key, item)
 		}
-		s.mu.Unlock()
+		s.cacheMu.Unlock()
 		return item, found, nil
 	}
 }
 
-// cacheMappingLocked adds or refreshes an item while s.mu is held.
+// cacheMappingLocked adds or refreshes an item while s.cacheMu is held.
 func (s *Store) cacheMappingLocked(key string, item mapping) {
 	if element, found := s.cache[key]; found {
 		element.Value = cachedMapping{key: key, item: item}
@@ -185,7 +216,7 @@ func (s *Store) cacheMappingLocked(key string, item mapping) {
 	}
 }
 
-// evictMappingLocked removes an item while s.mu is held.
+// evictMappingLocked removes an item while s.cacheMu is held.
 func (s *Store) evictMappingLocked(key string) {
 	if element, found := s.cache[key]; found {
 		delete(s.cache, key)
@@ -264,35 +295,22 @@ func (s *Store) GetOrCreate(ctx context.Context, request Request, generate func(
 		return "", err
 	}
 
-	s.mu.Lock()
-	var item mapping
-	var found bool
-	if element, cached := s.cache[key]; cached {
-		item = element.Value.(cachedMapping).item
-		found = true
-		s.cacheLRU.MoveToFront(element)
-	} else {
-		item, found, err = s.find(ctx, request.Kind, request.Identity)
-		if err != nil {
-			s.mu.Unlock()
-			return "", err
-		}
-		if found {
-			s.cacheMappingLocked(key, item)
-		}
+	unlockMapping := s.lockMapping(key)
+	defer unlockMapping()
+
+	item, found, err := s.mappingFor(ctx, key, request.Kind, request.Identity)
+	if err != nil {
+		return "", err
 	}
 	now := s.now().Unix()
 	if found {
 		output, ok := freshThumbnail(item, request, s.dir)
 		if ok {
-			s.mu.Unlock()
 			return output, nil
 		}
-		s.mu.Unlock()
 		if err := s.render(output, generate); err != nil {
 			return "", err
 		}
-		s.mu.Lock()
 		_, err = s.db.ExecContext(ctx, `
 UPDATE thumbnail_mappings
 SET source_file_path=?, source_hash=?, source_size=?, source_mtime_ns=?, updated_at=?, last_access_at=?
@@ -302,16 +320,20 @@ WHERE id=?`, request.SourcePath, digest, request.Info.Size(), request.Info.ModTi
 			item.SourceHash = digest
 			item.SourceSize = request.Info.Size()
 			item.SourceMTimeNS = request.Info.ModTime().UnixNano()
+			s.cacheMu.Lock()
 			s.cacheMappingLocked(key, item)
 			s.revision++
+			s.cacheMu.Unlock()
 		}
-		s.mu.Unlock()
 		return output, err
 	}
 
+	// Reserving a filename is short but must be atomic with insertion so two
+	// different identities with colliding digests cannot choose the same file.
+	s.namespaceMu.Lock()
 	fileName, err := s.allocateFileName(ctx, digest, request.Kind, request.Identity)
 	if err != nil {
-		s.mu.Unlock()
+		s.namespaceMu.Unlock()
 		return "", err
 	}
 	result, err := s.db.ExecContext(ctx, `
@@ -320,11 +342,12 @@ INSERT INTO thumbnail_mappings
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, request.Kind, request.Identity, request.SourcePath, digest, fileName,
 		request.Info.Size(), request.Info.ModTime().UnixNano(), now, now, now)
 	if err != nil {
-		s.mu.Unlock()
+		s.namespaceMu.Unlock()
 		return "", fmt.Errorf("reserve thumbnail mapping: %w", err)
 	}
 	id, _ := result.LastInsertId()
-	s.revision++
+	s.namespaceMu.Unlock()
+
 	item = mapping{
 		ID:             id,
 		SourceFilePath: request.SourcePath,
@@ -333,16 +356,20 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, request.Kind, request.Identity, request.
 		SourceSize:     request.Info.Size(),
 		SourceMTimeNS:  request.Info.ModTime().UnixNano(),
 	}
+	s.cacheMu.Lock()
 	s.cacheMappingLocked(key, item)
+	s.revision++
+	s.cacheMu.Unlock()
 	output := filepath.Join(s.dir, fileName)
-	s.mu.Unlock()
 	if err := s.render(output, generate); err != nil {
-		s.mu.Lock()
+		s.namespaceMu.Lock()
 		if _, deleteErr := s.db.ExecContext(ctx, `DELETE FROM thumbnail_mappings WHERE id=?`, id); deleteErr == nil {
+			s.cacheMu.Lock()
 			s.evictMappingLocked(key)
 			s.revision++
+			s.cacheMu.Unlock()
 		}
-		s.mu.Unlock()
+		s.namespaceMu.Unlock()
 		return "", err
 	}
 	return output, nil
@@ -437,8 +464,8 @@ func (s *Store) render(output string, generate func(string) error) error {
 // orphaned JPEGs that are not referenced by the database.
 func (s *Store) Cleanup(ctx context.Context) (int, error) {
 	// Cleanup calls may scan in parallel with cache reads and generation. Only
-	// serialize cleanups with each other; s.mu is acquired below for the short
-	// check-and-delete sections that must not race with GetOrCreate.
+	// serialize cleanups with each other. Per-mapping and namespace locks below
+	// coordinate only with work that can affect the same mapping or filename.
 	s.cleanupMu.Lock()
 	defer s.cleanupMu.Unlock()
 
@@ -479,41 +506,47 @@ SELECT source_kind, source_path, id, source_file_path, file_name FROM thumbnail_
 			continue
 		}
 
-		// The mapping or source may have changed since the unlocked scan. Check
-		// both again while cache mutations are excluded before removing either.
-		s.mu.Lock()
-		var kind, identity, source, fileName string
-		err := s.db.QueryRowContext(ctx, `
+		deleted, err := func() (bool, error) {
+			unlockMapping := s.lockMapping(item.key)
+			defer unlockMapping()
+			s.namespaceMu.Lock()
+			defer s.namespaceMu.Unlock()
+
+			// The mapping or source may have changed since the unlocked scan.
+			var kind, identity, source, fileName string
+			err := s.db.QueryRowContext(ctx, `
 SELECT source_kind, source_path, source_file_path, file_name
 FROM thumbnail_mappings WHERE id=?`, item.id).Scan(&kind, &identity, &source, &fileName)
-		if errors.Is(err, sql.ErrNoRows) {
-			s.mu.Unlock()
-			continue
-		}
+			if errors.Is(err, sql.ErrNoRows) {
+				return false, nil
+			}
+			if err != nil {
+				return false, err
+			}
+			if mappingKey(kind, identity) != item.key || source != item.source || fileName != item.fileName {
+				return false, nil
+			}
+			if _, err := os.Stat(source); !errors.Is(err, fs.ErrNotExist) {
+				return false, nil
+			}
+			if _, err := s.db.ExecContext(ctx, `DELETE FROM thumbnail_mappings WHERE id=?`, item.id); err != nil {
+				return false, err
+			}
+			s.cacheMu.Lock()
+			s.evictMappingLocked(item.key)
+			s.revision++
+			s.cacheMu.Unlock()
+			if err := os.Remove(filepath.Join(s.dir, fileName)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return false, err
+			}
+			return true, nil
+		}()
 		if err != nil {
-			s.mu.Unlock()
 			return removed, err
 		}
-		if mappingKey(kind, identity) != item.key || source != item.source || fileName != item.fileName {
-			s.mu.Unlock()
-			continue
+		if deleted {
+			removed++
 		}
-		if _, err := os.Stat(source); !errors.Is(err, fs.ErrNotExist) {
-			s.mu.Unlock()
-			continue
-		}
-		if _, err := s.db.ExecContext(ctx, `DELETE FROM thumbnail_mappings WHERE id=?`, item.id); err != nil {
-			s.mu.Unlock()
-			return removed, err
-		}
-		s.evictMappingLocked(item.key)
-		s.revision++
-		if err := os.Remove(filepath.Join(s.dir, fileName)); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			s.mu.Unlock()
-			return removed, err
-		}
-		s.mu.Unlock()
-		removed++
 	}
 
 	referenced := make(map[string]struct{})
@@ -549,23 +582,23 @@ FROM thumbnail_mappings WHERE id=?`, item.id).Scan(&kind, &identity, &source, &f
 		}
 
 		// A thumbnail may have been reserved after the reference snapshot. Keep
-		// the final database check and file removal atomic with cache mutations.
-		s.mu.Lock()
+		// the final database check and file removal atomic with filename creation.
+		s.namespaceMu.Lock()
 		var referencedNow int
 		err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM thumbnail_mappings WHERE file_name=?)`, entry.Name()).Scan(&referencedNow)
 		if err != nil {
-			s.mu.Unlock()
+			s.namespaceMu.Unlock()
 			return removed, err
 		}
 		if referencedNow != 0 {
-			s.mu.Unlock()
+			s.namespaceMu.Unlock()
 			continue
 		}
 		if err := os.Remove(filepath.Join(s.dir, entry.Name())); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			s.mu.Unlock()
+			s.namespaceMu.Unlock()
 			return removed, err
 		}
-		s.mu.Unlock()
+		s.namespaceMu.Unlock()
 		removed++
 	}
 	return removed, nil
