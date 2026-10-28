@@ -36,7 +36,7 @@ type Store struct {
 	db        *sql.DB
 	dir       string
 	hash      func(string) string
-	mu        sync.Mutex
+	mu        sync.RWMutex
 	cleanupMu sync.Mutex
 	now       func() time.Time
 }
@@ -108,8 +108,8 @@ func (s *Store) Lookup(ctx context.Context, request Request) (string, bool, erro
 	if err != nil {
 		return "", false, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	item, found, err := s.find(ctx, request.Kind, request.Identity)
 	if err != nil || !found {
 		return "", false, err
@@ -128,8 +128,8 @@ func (s *Store) CachedFile(ctx context.Context, kind, identity string, mtimeNS, 
 	if err != nil {
 		return "", false, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	item, found, err := s.find(ctx, kind, identity)
 	if err != nil || !found {
 		return "", false, err

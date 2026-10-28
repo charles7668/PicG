@@ -135,6 +135,64 @@ func TestCachedFileSkipsStaleStamp(t *testing.T) {
 	}
 }
 
+func TestCacheReadsShareStoreLock(t *testing.T) {
+	work := t.TempDir()
+	db, err := database.Open(filepath.Join(work, "app.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store, err := NewStore(db, filepath.Join(work, "thumbnails"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(work, "photo.jpg")
+	if err := os.WriteFile(source, []byte("source"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := Request{Kind: "image", Identity: "photo.jpg", SourcePath: source, Info: info}
+	if _, err := store.GetOrCreate(context.Background(), request, writeThumbnail("thumbnail")); err != nil {
+		t.Fatal(err)
+	}
+
+	// Holding one read lock must not block other cache hits. This would time out
+	// if either read path regressed to taking the exclusive Store lock.
+	store.mu.RLock()
+	done := make(chan error, 2)
+	go func() {
+		_, ok, err := store.CachedFile(context.Background(), "image", "photo.jpg", info.ModTime().UnixNano(), info.Size(), true)
+		if err == nil && !ok {
+			err = fmt.Errorf("CachedFile missed an existing thumbnail")
+		}
+		done <- err
+	}()
+	go func() {
+		_, ok, err := store.Lookup(context.Background(), request)
+		if err == nil && !ok {
+			err = fmt.Errorf("Lookup missed an existing thumbnail")
+		}
+		done <- err
+	}()
+
+	for range 2 {
+		select {
+		case err := <-done:
+			if err != nil {
+				store.mu.RUnlock()
+				t.Fatal(err)
+			}
+		case <-time.After(5 * time.Second):
+			store.mu.RUnlock()
+			t.Fatal("cache read blocked on another reader")
+		}
+	}
+	store.mu.RUnlock()
+}
+
 func TestCleanupRemovesMissingSourcesAndOrphans(t *testing.T) {
 	work := t.TempDir()
 	db, err := database.Open(filepath.Join(work, "app.sqlite"))
