@@ -74,13 +74,6 @@ func routesWithStorage(root, databasePath, thumbnailDir string, cleanupWhenIdle 
 	if err != nil {
 		panic(err)
 	}
-	legacyConfig := os.Getenv("PICG_CONFIG")
-	if legacyConfig == "" {
-		legacyConfig = filepath.Join(filepath.Dir(databasePath), "settings.json")
-	}
-	if err := settingsStore.ImportLegacyFile(legacyConfig); err != nil {
-		log.Printf("import legacy settings %q: %v", legacyConfig, err)
-	}
 	thumbnailStore, err := thumbnail.NewStore(db, thumbnailDir)
 	if err != nil {
 		panic(err)
