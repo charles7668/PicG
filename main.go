@@ -19,6 +19,7 @@ import (
 	"git.charleshnas.dscloud.me/charles7668/PicG/internal/config"
 	"git.charleshnas.dscloud.me/charles7668/PicG/internal/database"
 	"git.charleshnas.dscloud.me/charles7668/PicG/internal/gallery"
+	"git.charleshnas.dscloud.me/charles7668/PicG/internal/migrate"
 	"git.charleshnas.dscloud.me/charles7668/PicG/internal/thumbnail"
 	"git.charleshnas.dscloud.me/charles7668/PicG/internal/video"
 	"git.charleshnas.dscloud.me/charles7668/PicG/web/components"
@@ -66,7 +67,7 @@ func routesWithRoot(root string) http.Handler {
 func routesWithStorage(root, databasePath, thumbnailDir string, cleanupWhenIdle bool) http.Handler {
 	mux := http.NewServeMux()
 	browser := gallery.NewBrowser(root)
-	db, err := database.Open(databasePath)
+	db, err := database.OpenWith(databasePath, migrate.Host{ThumbnailDir: thumbnailDir})
 	if err != nil {
 		panic(err)
 	}
