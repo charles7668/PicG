@@ -2,6 +2,7 @@ package thumbnail
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 )
@@ -12,13 +13,12 @@ type jobResult struct {
 }
 
 type job struct {
-	key      string
-	folder   string
-	seq      uint64
-	running  bool
-	request  Request
-	generate func(string) error
-	waiters  []chan jobResult
+	key     string
+	folder  string
+	seq     uint64
+	running bool
+	work    func() jobResult
+	waiters []chan jobResult
 }
 
 // Queue serializes thumbnail generation and prefers the folder the user just
@@ -74,22 +74,12 @@ func (q *Queue) GetOrCreate(ctx context.Context, request Request, generate func(
 	}
 
 	wait := make(chan jobResult, 1)
-	q.mu.Lock()
-	if existing, found := q.pending[key]; found {
-		existing.waiters = append(existing.waiters, wait)
-	} else {
-		q.seq++
-		q.pending[key] = &job{
-			key:      key,
-			folder:   jobFolder(request.Identity),
-			seq:      q.seq,
-			request:  request,
-			generate: generate,
-			waiters:  []chan jobResult{wait},
-		}
-		q.cond.Broadcast()
+	if err := q.schedule(key, request.Identity, func() jobResult {
+		path, err := q.store.GetOrCreate(context.Background(), request, generate)
+		return jobResult{path: path, err: err}
+	}, wait); err != nil {
+		return "", err
 	}
-	q.mu.Unlock()
 
 	select {
 	case result := <-wait:
@@ -97,6 +87,41 @@ func (q *Queue) GetOrCreate(ctx context.Context, request Request, generate func(
 	case <-ctx.Done():
 		return "", ctx.Err()
 	}
+}
+
+// Enqueue starts work for a cache miss and returns without waiting. Same
+// identity shares one pending job. HTTP handlers use this so a miss can 503
+// and free the browser connection while a worker generates.
+func (q *Queue) Enqueue(kind, identity string, work func() error) error {
+	kind, identity, err := normalizeKey(kind, identity)
+	if err != nil {
+		return err
+	}
+	return q.schedule(mappingKey(kind, identity), identity, func() jobResult {
+		return jobResult{err: work()}
+	}, nil)
+}
+
+func (q *Queue) schedule(key, identity string, work func() jobResult, wait chan jobResult) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.closed {
+		return errors.New("thumbnail queue closed")
+	}
+	if existing, found := q.pending[key]; found {
+		if wait != nil {
+			existing.waiters = append(existing.waiters, wait)
+		}
+		return nil
+	}
+	q.seq++
+	item := &job{key: key, folder: jobFolder(identity), seq: q.seq, work: work}
+	if wait != nil {
+		item.waiters = []chan jobResult{wait}
+	}
+	q.pending[key] = item
+	q.cond.Broadcast()
+	return nil
 }
 
 func (q *Queue) Close() {
@@ -116,14 +141,13 @@ func (q *Queue) loop() {
 			}
 			if job := q.pickLocked(); job != nil {
 				job.running = true
-				request, generate := job.request, job.generate
+				work := job.work
 				q.mu.Unlock()
-				path, err := q.store.GetOrCreate(context.Background(), request, generate)
+				result := work()
 				q.mu.Lock()
 				waiters := job.waiters
 				delete(q.pending, job.key)
 				q.mu.Unlock()
-				result := jobResult{path: path, err: err}
 				for _, wait := range waiters {
 					wait <- result
 				}

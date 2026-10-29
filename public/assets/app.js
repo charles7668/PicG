@@ -5,6 +5,8 @@
   const videoMutedKey = "picg-video-muted";
 
   let thumbnailEpoch = 0;
+  const maxThumbnailTries = 60;
+  const thumbnailRetryDelay = 1000;
 
   const prepareThumbnails = (scope = document) => {
     scope.querySelectorAll?.("img[data-thumbnail]").forEach((image) => {
@@ -467,7 +469,7 @@
     const url = image.getAttribute("src");
     if (!url) return;
     const tries = Number(image.dataset.thumbnailTries || "0");
-    if (tries >= 4) {
+    if (tries >= maxThumbnailTries) {
       if (image.matches("[data-folder-cover]") || image.dataset.mediaThumbnail === "video") image.hidden = true;
       return;
     }
@@ -476,7 +478,7 @@
     window.setTimeout(() => {
       if (epoch !== thumbnailEpoch || !image.isConnected || image.dataset.thumbnailAborted === "true") return;
       image.src = url.replace(/&retry=\d+$/, "") + "&retry=" + image.dataset.thumbnailTries;
-    }, 1200);
+    }, thumbnailRetryDelay);
   }, true);
 
   document.addEventListener("load", (event) => {

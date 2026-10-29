@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"image/jpeg"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 )
 
@@ -55,14 +57,14 @@ func TestRoutesBrowseAndServePictures(t *testing.T) {
 		{path: "/assets/app.js", status: http.StatusOK, want: "localStorage", contentType: "text/javascript"},
 		{path: "/assets/app.js", status: http.StatusOK, want: "picg-video-volume", contentType: "text/javascript"},
 		{path: "/assets/app.js", status: http.StatusOK, want: "cancelThumbnailWork", contentType: "text/javascript"},
+		{path: "/assets/app.js", status: http.StatusOK, want: "maxThumbnailTries", contentType: "text/javascript"},
+		{path: "/assets/app.js", status: http.StatusOK, want: "thumbnailRetryDelay", contentType: "text/javascript"},
 		{path: "/missing", status: http.StatusNotFound, want: "page not found", contentType: "text/plain"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
-			recorder := httptest.NewRecorder()
-			request := httptest.NewRequest(http.MethodGet, tt.path, nil)
-			handler.ServeHTTP(recorder, request)
+			recorder := getPath(t, handler, tt.path)
 			if recorder.Code != tt.status {
 				t.Fatalf("expected status %d, got %d", tt.status, recorder.Code)
 			}
@@ -83,27 +85,65 @@ func TestRoutesBrowseAndServePictures(t *testing.T) {
 	}
 }
 
-func TestThumbnailServesImmutableCache(t *testing.T) {
+func TestThumbnailMissReturns503ThenServesCache(t *testing.T) {
 	root := t.TempDir()
 	writeTestJPEG(t, filepath.Join(root, "sunset.jpg"))
 	handler := routesWithRoot(root)
+	path := "/thumbnail?kind=image&path=sunset.jpg"
 
 	first := httptest.NewRecorder()
-	handler.ServeHTTP(first, httptest.NewRequest(http.MethodGet, "/thumbnail?kind=image&path=sunset.jpg", nil))
-	if first.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d", first.Code)
+	handler.ServeHTTP(first, httptest.NewRequest(http.MethodGet, path, nil))
+	if first.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected miss status 503, got %d", first.Code)
+	}
+	if cache := first.Header().Get("Cache-Control"); !strings.Contains(cache, "no-store") {
+		t.Fatalf("expected no-store on generating response, got %q", cache)
+	}
+	if retry := first.Header().Get("Retry-After"); retry != "1" {
+		t.Fatalf("expected Retry-After 1, got %q", retry)
+	}
+
+	ready := waitForThumbnail(t, handler, path)
+	if cache := ready.Header().Get("Cache-Control"); !strings.Contains(cache, "immutable") {
+		t.Fatalf("expected immutable cache header, got %q", cache)
+	}
+	if contentType := ready.Header().Get("Content-Type"); !strings.Contains(contentType, "image/jpeg") {
+		t.Fatalf("expected jpeg, got %q", contentType)
 	}
 
 	second := httptest.NewRecorder()
-	handler.ServeHTTP(second, httptest.NewRequest(http.MethodGet, "/thumbnail?kind=image&path=sunset.jpg", nil))
+	handler.ServeHTTP(second, httptest.NewRequest(http.MethodGet, path, nil))
 	if second.Code != http.StatusOK {
 		t.Fatalf("expected cached status 200, got %d", second.Code)
 	}
 	if cache := second.Header().Get("Cache-Control"); !strings.Contains(cache, "immutable") {
 		t.Fatalf("expected immutable cache header, got %q", cache)
 	}
-	if contentType := second.Header().Get("Content-Type"); !strings.Contains(contentType, "image/jpeg") {
-		t.Fatalf("expected jpeg, got %q", contentType)
+}
+
+func TestThumbnailMissDoesNotWaitForGeneration(t *testing.T) {
+	root := t.TempDir()
+	const n = 8
+	for i := range n {
+		writeTestJPEG(t, filepath.Join(root, fmt.Sprintf("p%d.jpg", i)))
+	}
+	handler := routesWithRoot(root)
+	codes := make(chan int, n)
+	begin := time.Now()
+	for i := range n {
+		go func(i int) {
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, fmt.Sprintf("/thumbnail?kind=image&path=p%d.jpg", i), nil))
+			codes <- recorder.Code
+		}(i)
+	}
+	for range n {
+		if code := <-codes; code != http.StatusServiceUnavailable {
+			t.Fatalf("expected miss status 503, got %d", code)
+		}
+	}
+	if elapsed := time.Since(begin); elapsed > time.Second {
+		t.Fatalf("thumbnail misses blocked the handler: %s", elapsed)
 	}
 }
 
@@ -168,6 +208,32 @@ func TestVideoRouteStreamsFFmpegMP4(t *testing.T) {
 	if !strings.Contains(recorder.Body.String(), "ftyp") || !strings.Contains(recorder.Body.String(), "moof") {
 		t.Fatal("expected fragmented MP4 output")
 	}
+}
+
+func getPath(t *testing.T, handler http.Handler, path string) *httptest.ResponseRecorder {
+	t.Helper()
+	if strings.HasPrefix(path, "/thumbnail") || strings.HasPrefix(path, "/cover?") || strings.HasPrefix(path, "/video-thumbnail") {
+		return waitForThumbnail(t, handler, path)
+	}
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+	return recorder
+}
+
+func waitForThumbnail(t *testing.T, handler http.Handler, path string) *httptest.ResponseRecorder {
+	t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	var recorder *httptest.ResponseRecorder
+	for time.Now().Before(deadline) {
+		recorder = httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+		if recorder.Code != http.StatusServiceUnavailable {
+			return recorder
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("thumbnail %s still generating, last status %d", path, recorder.Code)
+	return recorder
 }
 
 func writeTestJPEG(t *testing.T, path string) {

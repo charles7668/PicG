@@ -181,39 +181,42 @@ func routesWithStorage(root, databasePath, thumbnailDir string, cleanupWhenIdle 
 			serveThumbnailFile(w, r, cached)
 			return
 		}
-		var input string
-		var info os.FileInfo
-		if kind == "cover" {
-			identity, input, info, err = browser.ResolveCover(r.URL.Query().Get("path"))
-		} else {
-			identity, input, info, err = browser.ResolveMedia(r.URL.Query().Get("path"))
-		}
-		if err != nil {
-			http.NotFound(w, r)
-			return
-		}
-		thumbnailPath, err := thumbnailQueue.GetOrCreate(r.Context(), thumbnail.Request{
-			Kind: kind, Identity: identity, SourcePath: input, Info: info,
-		}, func(output string) error {
-			const maxGoImageBytes = 6 << 20
-			videoSource := kind == "video" || isVideoFilename(input)
-			if !videoSource && info.Size() <= maxGoImageBytes {
-				if imageErr := thumbnail.RenderImage(input, output); imageErr == nil {
-					return nil
+		rawPath := r.URL.Query().Get("path")
+		if err := thumbnailQueue.Enqueue(kind, identity, func() error {
+			var input string
+			var info os.FileInfo
+			var resolveErr error
+			resolvedIdentity := identity
+			if kind == "cover" {
+				resolvedIdentity, input, info, resolveErr = browser.ResolveCover(rawPath)
+			} else {
+				resolvedIdentity, input, info, resolveErr = browser.ResolveMedia(rawPath)
+			}
+			if resolveErr != nil {
+				return resolveErr
+			}
+			_, err := thumbnailStore.GetOrCreate(context.Background(), thumbnail.Request{
+				Kind: kind, Identity: resolvedIdentity, SourcePath: input, Info: info,
+			}, func(output string) error {
+				const maxGoImageBytes = 6 << 20
+				videoSource := kind == "video" || isVideoFilename(input)
+				if !videoSource && info.Size() <= maxGoImageBytes {
+					if imageErr := thumbnail.RenderImage(input, output); imageErr == nil {
+						return nil
+					}
 				}
+				return ffmpeg.RenderThumbnail(context.Background(), input, output, videoSource)
+			})
+			if err != nil {
+				log.Printf("thumbnail %q: %v", input, err)
 			}
-			return ffmpeg.RenderThumbnail(context.Background(), input, output, videoSource)
-		})
-		if err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return
-			}
-			log.Printf("thumbnail %q: %v", input, err)
-			w.Header().Set("Cache-Control", "no-store")
-			http.Error(w, "unable to create thumbnail", http.StatusServiceUnavailable)
-			return
+			return err
+		}); err != nil {
+			log.Printf("thumbnail enqueue %s %q: %v", kind, identity, err)
 		}
-		serveThumbnailFile(w, r, thumbnailPath)
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Retry-After", "1")
+		http.Error(w, "thumbnail generating", http.StatusServiceUnavailable)
 	}
 	mux.HandleFunc("GET /thumbnail", func(w http.ResponseWriter, r *http.Request) { serveThumbnail(w, r, "") })
 	// Compatibility endpoints for bookmarks and pages cached before the unified

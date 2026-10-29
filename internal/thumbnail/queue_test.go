@@ -63,6 +63,35 @@ func TestQueuePrefersFocusedFolder(t *testing.T) {
 	wg.Wait()
 }
 
+func TestEnqueueDoesNotWaitForWork(t *testing.T) {
+	store := testStore(t)
+	queue := newQueue(store, 1)
+	defer queue.Close()
+
+	started := make(chan struct{})
+	block := make(chan struct{})
+	request := testRequest(t, store, "album-a/slow.jpg")
+	begin := time.Now()
+	if err := queue.Enqueue(request.Kind, request.Identity, func() error {
+		close(started)
+		<-block
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if time.Since(begin) > 200*time.Millisecond {
+		t.Fatalf("Enqueue waited for work: %s", time.Since(begin))
+	}
+	recv(t, started)
+	if err := queue.Enqueue(request.Kind, request.Identity, func() error {
+		t.Error("duplicate enqueue should share the pending job")
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	close(block)
+}
+
 func TestQueueCacheHitDoesNotWaitForOtherFolder(t *testing.T) {
 	store := testStore(t)
 	queue := NewQueue(store)
