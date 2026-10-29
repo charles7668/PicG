@@ -27,7 +27,6 @@ COPY --from=builder --chown=picg:picg /out/picg /usr/local/bin/picg
 
 ENV PORT=8080 \
     PIC_DIR=/app/pic \
-    PICG_CONFIG=/app/settings.json \
     PICG_DATABASE=/app/app.sqlite \
     PICG_THUMBNAILS=/app/thumbnails
 

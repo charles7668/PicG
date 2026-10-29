@@ -8,11 +8,10 @@ services:
     environment:
       PORT: "8080"
       PIC_DIR: /app/pic
-      PICG_CONFIG: /app/settings.json
       PICG_DATABASE: /app/app.sqlite
       PICG_THUMBNAILS: /app/thumbnails
     volumes:
-      # Persists settings.json, app.sqlite, and generated thumbnails across upgrades.
+      # Persists app.sqlite and generated thumbnails across upgrades.
       - picg-data:/app
       # Put photos under ./pic, or set PICG_PHOTOS_PATH in your environment.
       - ${PICG_PHOTOS_PATH:-./pic}:/app/pic:ro

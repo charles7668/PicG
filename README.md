@@ -22,7 +22,7 @@ docker compose -f docker-compose.example.yml up -d
 docker compose -f docker-compose.example.yml down
 ```
 
-Compose 會將 `./pic` 唯讀掛載到容器的 `/app/pic`，並以 Docker named volume `picg-data` 持久保存 `/app/app.sqlite`、`/app/thumbnails` 和 `/app/settings.json`。更新 image 時不要刪除這個 volume；`docker compose down -v` 會刪除持久化資料。
+Compose 會將 `./pic` 唯讀掛載到容器的 `/app/pic`，並以 Docker named volume `picg-data` 持久保存 `/app/app.sqlite` 與 `/app/thumbnails`。設定寫入 `app.sqlite`。更新 image 時不要刪除這個 volume；`docker compose down -v` 會刪除持久化資料。
 
 可以用環境變數指定其他相片目錄、主機連接埠或 image：
 

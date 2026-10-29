@@ -47,10 +47,6 @@ func routes() http.Handler {
 	if root == "" {
 		root = "/app/pic"
 	}
-	configPath := os.Getenv("PICG_CONFIG")
-	if configPath == "" {
-		configPath = "/app/settings.json"
-	}
 	databasePath := os.Getenv("PICG_DATABASE")
 	if databasePath == "" {
 		databasePath = "/app/app.sqlite"
@@ -59,28 +55,31 @@ func routes() http.Handler {
 	if thumbnailDir == "" {
 		thumbnailDir = "/app/thumbnails"
 	}
-	return routesWithStorage(root, configPath, databasePath, thumbnailDir, true)
+	return routesWithStorage(root, databasePath, thumbnailDir, true)
 }
 
 func routesWithRoot(root string) http.Handler {
 	stateDir := root + "-picg-state"
-	return routesWithStorage(root, filepath.Join(stateDir, "settings.json"), filepath.Join(stateDir, "app.sqlite"), filepath.Join(stateDir, "thumbnails"), false)
+	return routesWithStorage(root, filepath.Join(stateDir, "app.sqlite"), filepath.Join(stateDir, "thumbnails"), false)
 }
 
-func routesWithConfig(root, configPath, cacheDir string) http.Handler {
-	return routesWithStorage(root, configPath, filepath.Join(filepath.Dir(cacheDir), "app.sqlite"), cacheDir, false)
-}
-
-func routesWithStorage(root, configPath, databasePath, thumbnailDir string, cleanupWhenIdle bool) http.Handler {
+func routesWithStorage(root, databasePath, thumbnailDir string, cleanupWhenIdle bool) http.Handler {
 	mux := http.NewServeMux()
 	browser := gallery.NewBrowser(root)
-	settingsStore, err := config.NewStore(configPath)
-	if err != nil {
-		panic(err)
-	}
 	db, err := database.Open(databasePath)
 	if err != nil {
 		panic(err)
+	}
+	settingsStore, err := config.NewStore(db)
+	if err != nil {
+		panic(err)
+	}
+	legacyConfig := os.Getenv("PICG_CONFIG")
+	if legacyConfig == "" {
+		legacyConfig = filepath.Join(filepath.Dir(databasePath), "settings.json")
+	}
+	if err := settingsStore.ImportLegacyFile(legacyConfig); err != nil {
+		log.Printf("import legacy settings %q: %v", legacyConfig, err)
 	}
 	thumbnailStore, err := thumbnail.NewStore(db, thumbnailDir)
 	if err != nil {

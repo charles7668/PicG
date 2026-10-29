@@ -40,6 +40,16 @@ CREATE INDEX thumbnail_mappings_source_file_idx ON thumbnail_mappings (source_fi
 CREATE INDEX thumbnail_mappings_last_access_idx ON thumbnail_mappings (last_access_at);
 `,
 	},
+	{
+		version: 2,
+		sql: `
+CREATE TABLE settings (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+`,
+	},
 }
 
 func Open(path string) (*sql.DB, error) {

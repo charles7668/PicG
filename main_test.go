@@ -193,8 +193,7 @@ func writeTestJPEG(t *testing.T, path string) {
 
 func TestSettingsPersistCustomFFmpegPath(t *testing.T) {
 	root := t.TempDir()
-	configPath := filepath.Join(t.TempDir(), "settings.json")
-	handler := routesWithConfig(root, configPath, filepath.Join(t.TempDir(), "cache"))
+	handler := routesWithRoot(root)
 	form := url.Values{"ffmpeg_path": {"/custom/bin/ffmpeg"}}
 	request := httptest.NewRequest(http.MethodPost, "/settings", strings.NewReader(form.Encode()))
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -203,15 +202,8 @@ func TestSettingsPersistCustomFFmpegPath(t *testing.T) {
 	if recorder.Code != http.StatusSeeOther {
 		t.Fatalf("expected redirect, got %d: %s", recorder.Code, recorder.Body.String())
 	}
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(data), "/custom/bin/ffmpeg") {
-		t.Fatalf("custom FFmpeg path was not persisted: %s", data)
-	}
 	page := httptest.NewRecorder()
-	handler.ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/settings?saved=1", nil))
+	routesWithRoot(root).ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/settings?saved=1", nil))
 	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "/custom/bin/ffmpeg") || !strings.Contains(page.Body.String(), "設定已儲存") {
 		t.Fatalf("unexpected settings page: %d %s", page.Code, page.Body.String())
 	}
