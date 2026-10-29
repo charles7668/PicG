@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bufio"
+	"context"
 	"fmt"
 	"image"
 	"image/color"
@@ -57,8 +59,8 @@ func TestRoutesBrowseAndServePictures(t *testing.T) {
 		{path: "/assets/app.js", status: http.StatusOK, want: "localStorage", contentType: "text/javascript"},
 		{path: "/assets/app.js", status: http.StatusOK, want: "picg-video-volume", contentType: "text/javascript"},
 		{path: "/assets/app.js", status: http.StatusOK, want: "cancelThumbnailWork", contentType: "text/javascript"},
-		{path: "/assets/app.js", status: http.StatusOK, want: "maxThumbnailTries", contentType: "text/javascript"},
-		{path: "/assets/app.js", status: http.StatusOK, want: "thumbnailRetryDelay", contentType: "text/javascript"},
+		{path: "/assets/app.js", status: http.StatusOK, want: "EventSource", contentType: "text/javascript"},
+		{path: "/assets/app.js", status: http.StatusOK, want: "/thumbnail-events", contentType: "text/javascript"},
 		{path: "/missing", status: http.StatusNotFound, want: "page not found", contentType: "text/plain"},
 	}
 
@@ -119,6 +121,53 @@ func TestThumbnailMissReturns503ThenServesCache(t *testing.T) {
 	if cache := second.Header().Get("Cache-Control"); !strings.Contains(cache, "immutable") {
 		t.Fatalf("expected immutable cache header, got %q", cache)
 	}
+}
+
+func TestThumbnailEventsNotifyWhenReady(t *testing.T) {
+	root := t.TempDir()
+	writeTestJPEG(t, filepath.Join(root, "sunset.jpg"))
+	server := httptest.NewServer(routesWithRoot(root))
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/thumbnail-events", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", response.StatusCode)
+	}
+	if contentType := response.Header.Get("Content-Type"); !strings.Contains(contentType, "text/event-stream") {
+		t.Fatalf("expected event-stream, got %q", contentType)
+	}
+
+	missResponse, err := http.Get(server.URL + "/thumbnail?kind=image&path=sunset.jpg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	missResponse.Body.Close()
+	if missResponse.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("expected miss status 503, got %d", missResponse.StatusCode)
+	}
+
+	reader := bufio.NewReader(response.Body)
+	deadline := time.Now().Add(8 * time.Second)
+	for time.Now().Before(deadline) {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			t.Fatalf("read events: %v", err)
+		}
+		if strings.Contains(line, `"status":"ready"`) && strings.Contains(line, "sunset.jpg") {
+			return
+		}
+	}
+	t.Fatal("did not receive ready thumbnail event")
 }
 
 func TestThumbnailMissDoesNotWaitForGeneration(t *testing.T) {

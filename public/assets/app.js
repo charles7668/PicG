@@ -7,11 +7,86 @@
   let thumbnailEpoch = 0;
   const maxThumbnailTries = 60;
   const thumbnailRetryDelay = 1000;
+  const recentThumbnailEvents = [];
+
+  const thumbnailSrc = (image) => image.dataset.thumbnailUrl || image.getAttribute("src") || "";
+
+  const rememberThumbnailUrl = (image, url) => {
+    if (!url) return;
+    image.dataset.thumbnailUrl = url.replace(/&retry=\d+$/, "");
+  };
+
+  const thumbnailParams = (image) => {
+    const raw = thumbnailSrc(image);
+    if (!raw) return null;
+    try {
+      const params = new URL(raw, location.origin).searchParams;
+      return { kind: params.get("kind") || "", path: params.get("path") || "" };
+    } catch {
+      return null;
+    }
+  };
+
+  const reloadThumbnail = (image) => {
+    const base = thumbnailSrc(image).replace(/&retry=\d+$/, "");
+    if (!base || image.dataset.thumbnailAborted === "true") return;
+    rememberThumbnailUrl(image, base);
+    image.src = base + "&retry=" + Date.now();
+  };
+
+  const applyThumbnailEvent = (data) => {
+    if (!data?.kind) return;
+    document.querySelectorAll("img[data-thumbnail]").forEach((image) => {
+      if (image.dataset.thumbnailAborted === "true") return;
+      const params = thumbnailParams(image);
+      if (!params || params.kind !== data.kind || params.path !== data.path) return;
+      if (data.status === "error") {
+        if (image.matches("[data-folder-cover]") || image.dataset.mediaThumbnail === "video") image.hidden = true;
+        return;
+      }
+      if (image.complete && image.naturalWidth > 0) return;
+      reloadThumbnail(image);
+    });
+  };
+
+  const rememberThumbnailEvent = (data) => {
+    recentThumbnailEvents.push(data);
+    if (recentThumbnailEvents.length > 64) recentThumbnailEvents.shift();
+  };
+
+  const connectThumbnailEvents = () => {
+    if (!window.EventSource || !document.querySelector("#gallery-content")) return;
+    const source = new EventSource("/thumbnail-events");
+    let opened = false;
+    source.addEventListener("open", () => {
+      if (!opened) {
+        opened = true;
+        return;
+      }
+      document.querySelectorAll("img[data-thumbnail]").forEach((image) => {
+        if (image.dataset.thumbnailAborted === "true") return;
+        if (image.complete && image.naturalWidth > 0) return;
+        rememberThumbnailUrl(image, thumbnailSrc(image));
+        reloadThumbnail(image);
+      });
+    });
+    source.addEventListener("thumbnail", (event) => {
+      let data;
+      try {
+        data = JSON.parse(event.data);
+      } catch {
+        return;
+      }
+      rememberThumbnailEvent(data);
+      applyThumbnailEvent(data);
+    });
+  };
 
   const prepareThumbnails = (scope = document) => {
     scope.querySelectorAll?.("img[data-thumbnail]").forEach((image) => {
       if (image.complete && image.naturalWidth > 0) image.classList.add("is-loaded");
     });
+    recentThumbnailEvents.forEach(applyThumbnailEvent);
   };
 
   const splitMediaGrids = (scope = document) => {
@@ -61,6 +136,7 @@
   if (savedTheme) root.dataset.theme = savedTheme;
   splitMediaGrids();
   prepareThumbnails();
+  connectThumbnailEvents();
 
   const persistSort = (value) => {
     document.cookie = `picg-sort=${encodeURIComponent(value)}; path=/; max-age=31536000; SameSite=Lax`;
@@ -468,6 +544,8 @@
     if (image.dataset.thumbnailAborted === "true") return;
     const url = image.getAttribute("src");
     if (!url) return;
+    rememberThumbnailUrl(image, url);
+    if (window.EventSource) return;
     const tries = Number(image.dataset.thumbnailTries || "0");
     if (tries >= maxThumbnailTries) {
       if (image.matches("[data-folder-cover]") || image.dataset.mediaThumbnail === "video") image.hidden = true;
@@ -477,7 +555,7 @@
     const epoch = thumbnailEpoch;
     window.setTimeout(() => {
       if (epoch !== thumbnailEpoch || !image.isConnected || image.dataset.thumbnailAborted === "true") return;
-      image.src = url.replace(/&retry=\d+$/, "") + "&retry=" + image.dataset.thumbnailTries;
+      reloadThumbnail(image);
     }, thumbnailRetryDelay);
   }, true);
 

@@ -80,6 +80,7 @@ func routesWithStorage(root, databasePath, thumbnailDir string, cleanupWhenIdle 
 		panic(err)
 	}
 	thumbnailQueue := thumbnail.NewQueue(thumbnailStore)
+	thumbnailEvents := thumbnail.NewHub()
 	ffmpeg := video.New(func() string { return settingsStore.Get().EffectiveFFmpegPath() })
 	assets, err := fs.Sub(publicFiles, "public")
 	if err != nil {
@@ -207,9 +208,12 @@ func routesWithStorage(root, databasePath, thumbnailDir string, cleanupWhenIdle 
 				}
 				return ffmpeg.RenderThumbnail(context.Background(), input, output, videoSource)
 			})
+			status := "ready"
 			if err != nil {
 				log.Printf("thumbnail %q: %v", input, err)
+				status = "error"
 			}
+			thumbnailEvents.Publish(kind, identity, status)
 			return err
 		}); err != nil {
 			log.Printf("thumbnail enqueue %s %q: %v", kind, identity, err)
@@ -219,6 +223,7 @@ func routesWithStorage(root, databasePath, thumbnailDir string, cleanupWhenIdle 
 		http.Error(w, "thumbnail generating", http.StatusServiceUnavailable)
 	}
 	mux.HandleFunc("GET /thumbnail", func(w http.ResponseWriter, r *http.Request) { serveThumbnail(w, r, "") })
+	mux.HandleFunc("GET /thumbnail-events", thumbnailEvents.Write)
 	// Compatibility endpoints for bookmarks and pages cached before the unified
 	// thumbnail route was introduced.
 	mux.HandleFunc("GET /cover", func(w http.ResponseWriter, r *http.Request) { serveThumbnail(w, r, "cover") })
