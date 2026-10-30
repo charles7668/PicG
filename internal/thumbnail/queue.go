@@ -28,7 +28,8 @@ type tabView struct {
 }
 
 // Queue serializes thumbnail generation and prefers folders currently open in
-// a browser tab. In-flight work finishes; waiting jobs from other folders run later.
+// a browser tab. A job that has been queued is not dropped; viewed folders
+// run first, and the rest follow in enqueue order.
 type Queue struct {
 	store   *Store
 	mu      sync.Mutex
@@ -63,18 +64,17 @@ func newQueue(store *Store, workers int) *Queue {
 
 // View records the folder one browser tab is showing. It is a heartbeat:
 // each call refreshes that tab and forgets tabs silent longer than viewerTTL.
-// Jobs stay queued while any live tab is still in their folder.
+// That only changes which waiting jobs are preferred. Queued work is not dropped.
 func (q *Queue) View(tab, folder string) {
 	folder = strings.Trim(folder, "/")
 	q.mu.Lock()
 	q.expireViewersLocked()
 	q.viewers[tab] = tabView{folder: folder, seen: q.now()}
-	q.dropAbandonedLocked()
 	q.mu.Unlock()
 }
 
-// Leave removes a tab. It does not drop queued work; the next View or a
-// heartbeat expiry does that, so a reload can enqueue before the new View.
+// Leave removes a tab. It does not drop queued work. A reload can enqueue
+// before the new page sends View.
 func (q *Queue) Leave(tab string) {
 	q.mu.Lock()
 	delete(q.viewers, tab)
@@ -220,15 +220,6 @@ func (q *Queue) expireViewersLocked() {
 	}
 }
 
-func (q *Queue) dropAbandonedLocked() {
-	for key, item := range q.pending {
-		if item.running || len(item.waiters) > 0 || q.viewingLocked(item.folder) {
-			continue
-		}
-		delete(q.pending, key)
-	}
-}
-
 func (q *Queue) removeWaiter(key string, wait chan jobResult) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -237,10 +228,6 @@ func (q *Queue) removeWaiter(key string, wait chan jobResult) {
 		return
 	}
 	item.waiters = withoutWaiter(item.waiters, wait)
-	if item.running || len(item.waiters) > 0 || q.viewingLocked(item.folder) {
-		return
-	}
-	delete(q.pending, key)
 }
 
 func withoutWaiter(waiters []chan jobResult, wait chan jobResult) []chan jobResult {

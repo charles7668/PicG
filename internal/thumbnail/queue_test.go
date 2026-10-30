@@ -115,7 +115,7 @@ func TestPickKeepsSmallerSeqWhenNeitherFolderIsFocused(t *testing.T) {
 	wg.Wait()
 }
 
-func TestViewDropsAbandonedEnqueueJobs(t *testing.T) {
+func TestViewDeprioritizesOtherFolders(t *testing.T) {
 	store := testStore(t)
 	queue := newQueue(store, 1)
 	defer queue.Close()
@@ -146,8 +146,8 @@ func TestViewDropsAbandonedEnqueueJobs(t *testing.T) {
 	waitPending(t, queue, 3)
 
 	queue.View("tab", "album-b")
-	if got := queue.pendingCount(); got != 2 {
-		t.Fatalf("abandoned enqueue should be dropped, pending %d", got)
+	if got := queue.pendingCount(); got != 3 {
+		t.Fatalf("queued work should stay, pending %d", got)
 	}
 
 	release <- struct{}{}
@@ -155,11 +155,10 @@ func TestViewDropsAbandonedEnqueueJobs(t *testing.T) {
 		t.Fatalf("after entering album-b, expected that folder next, got %q", got)
 	}
 	release <- struct{}{}
-	select {
-	case name := <-started:
-		t.Fatalf("dropped job should not run, got %q", name)
-	case <-time.After(100 * time.Millisecond):
+	if got := recv(t, started); got != "a2" {
+		t.Fatalf("previous folder should still run after, got %q", got)
 	}
+	release <- struct{}{}
 }
 
 func TestViewKeepsJobsForOtherTabs(t *testing.T) {
@@ -203,8 +202,8 @@ func TestViewKeepsJobsForOtherTabs(t *testing.T) {
 	}
 
 	queue.View("tab-b", "album-b")
-	if got := queue.pendingCount(); got != 2 {
-		t.Fatalf("View should drop folders nobody is watching, pending %d", got)
+	if got := queue.pendingCount(); got != 3 {
+		t.Fatalf("leaving a folder should keep its queued work, pending %d", got)
 	}
 
 	release <- struct{}{}
@@ -212,11 +211,10 @@ func TestViewKeepsJobsForOtherTabs(t *testing.T) {
 		t.Fatalf("remaining tab folder should run next, got %q", got)
 	}
 	release <- struct{}{}
-	select {
-	case name := <-started:
-		t.Fatalf("dropped job should not run, got %q", name)
-	case <-time.After(100 * time.Millisecond):
+	if got := recv(t, started); got != "a2" {
+		t.Fatalf("previous folder should still run after, got %q", got)
 	}
+	release <- struct{}{}
 }
 
 func TestViewExpiresStaleTab(t *testing.T) {
@@ -254,8 +252,8 @@ func TestViewExpiresStaleTab(t *testing.T) {
 
 	now = now.Add(viewerTTL + time.Second)
 	queue.View("tab-b", "album-b")
-	if got := queue.pendingCount(); got != 2 {
-		t.Fatalf("stale tab folder should drop, pending %d", got)
+	if got := queue.pendingCount(); got != 3 {
+		t.Fatalf("expired tab should not drop queued work, pending %d", got)
 	}
 
 	release <- struct{}{}
@@ -263,14 +261,13 @@ func TestViewExpiresStaleTab(t *testing.T) {
 		t.Fatalf("live tab folder should run next, got %q", got)
 	}
 	release <- struct{}{}
-	select {
-	case name := <-started:
-		t.Fatalf("expired tab job should not run, got %q", name)
-	case <-time.After(100 * time.Millisecond):
+	if got := recv(t, started); got != "a2" {
+		t.Fatalf("previous folder should still run after, got %q", got)
 	}
+	release <- struct{}{}
 }
 
-func TestCancelledWaiterDropsOffFocusJob(t *testing.T) {
+func TestCancelledWaiterStillRunsJob(t *testing.T) {
 	store := testStore(t)
 	queue := newQueue(store, 1)
 	defer queue.Close()
@@ -307,20 +304,15 @@ func TestCancelledWaiterDropsOffFocusJob(t *testing.T) {
 		t.Fatalf("expected canceled, got %v", err)
 	}
 
-	deadline := time.Now().Add(time.Second)
-	for queue.pendingCount() != 1 {
-		if time.Now().After(deadline) {
-			t.Fatalf("canceled off-focus job still pending, have %d", queue.pendingCount())
-		}
-		time.Sleep(5 * time.Millisecond)
+	if got := queue.pendingCount(); got != 2 {
+		t.Fatalf("canceled waiter should leave the job queued, pending %d", got)
 	}
 
 	release <- struct{}{}
-	select {
-	case name := <-started:
-		t.Fatalf("canceled job should not run, got %q", name)
-	case <-time.After(100 * time.Millisecond):
+	if got := recv(t, started); got != "b1" {
+		t.Fatalf("canceled waiter should not stop generation, got %q", got)
 	}
+	release <- struct{}{}
 }
 
 func TestEnqueueDoesNotWaitForWork(t *testing.T) {
