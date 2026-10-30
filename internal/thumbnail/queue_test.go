@@ -12,7 +12,7 @@ import (
 	"git.charleshnas.dscloud.me/charles7668/PicG/internal/database"
 )
 
-func TestQueuePrefersFocusedFolder(t *testing.T) {
+func TestQueuePrefersViewedFolder(t *testing.T) {
 	store := testStore(t)
 	queue := newQueue(store, 1)
 	defer queue.Close()
@@ -27,7 +27,7 @@ func TestQueuePrefersFocusedFolder(t *testing.T) {
 		}
 	}
 
-	queue.Focus("album-a")
+	queue.View("tab", "album-a")
 	var wg sync.WaitGroup
 	enqueue := func(identity, name string) {
 		t.Helper()
@@ -50,7 +50,7 @@ func TestQueuePrefersFocusedFolder(t *testing.T) {
 	enqueue("album-b/one.jpg", "b1")
 	waitPending(t, queue, 3)
 
-	queue.Focus("album-b")
+	queue.View("tab", "album-b")
 	release <- struct{}{}
 	if got := recv(t, started); got != "b1" {
 		t.Fatalf("after entering album-b, expected that folder next, got %q", got)
@@ -79,7 +79,7 @@ func TestPickKeepsSmallerSeqWhenNeitherFolderIsFocused(t *testing.T) {
 		}
 	}
 
-	queue.Focus("album-a")
+	queue.View("tab", "album-a")
 	var wg sync.WaitGroup
 	enqueue := func(identity, name string) {
 		t.Helper()
@@ -102,7 +102,7 @@ func TestPickKeepsSmallerSeqWhenNeitherFolderIsFocused(t *testing.T) {
 	enqueue("album-b/one.jpg", "b1")
 	waitPending(t, queue, 3)
 
-	queue.Focus("album-c")
+	queue.View("tab", "album-c")
 	release <- struct{}{}
 	if got := recv(t, started); got != "a1" {
 		t.Fatalf("off-focus jobs should keep smaller seq first, got %q", got)
@@ -115,7 +115,7 @@ func TestPickKeepsSmallerSeqWhenNeitherFolderIsFocused(t *testing.T) {
 	wg.Wait()
 }
 
-func TestFocusDropsAbandonedEnqueueJobs(t *testing.T) {
+func TestViewDropsAbandonedEnqueueJobs(t *testing.T) {
 	store := testStore(t)
 	queue := newQueue(store, 1)
 	defer queue.Close()
@@ -130,7 +130,7 @@ func TestFocusDropsAbandonedEnqueueJobs(t *testing.T) {
 		}
 	}
 
-	queue.Focus("album-a")
+	queue.View("tab", "album-a")
 	if err := queue.Enqueue("image", "album-a/one.jpg", work("a1")); err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +145,7 @@ func TestFocusDropsAbandonedEnqueueJobs(t *testing.T) {
 	}
 	waitPending(t, queue, 3)
 
-	queue.Focus("album-b")
+	queue.View("tab", "album-b")
 	if got := queue.pendingCount(); got != 2 {
 		t.Fatalf("abandoned enqueue should be dropped, pending %d", got)
 	}
@@ -158,6 +158,109 @@ func TestFocusDropsAbandonedEnqueueJobs(t *testing.T) {
 	select {
 	case name := <-started:
 		t.Fatalf("dropped job should not run, got %q", name)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func TestViewKeepsJobsForOtherTabs(t *testing.T) {
+	store := testStore(t)
+	queue := newQueue(store, 1)
+	defer queue.Close()
+
+	started := make(chan string, 8)
+	release := make(chan struct{})
+	work := func(name string) func() error {
+		return func() error {
+			started <- name
+			<-release
+			return nil
+		}
+	}
+
+	queue.View("tab-a", "album-a")
+	if err := queue.Enqueue("image", "album-a/one.jpg", work("a1")); err != nil {
+		t.Fatal(err)
+	}
+	if got := recv(t, started); got != "a1" {
+		t.Fatalf("first job should be current folder, got %q", got)
+	}
+	if err := queue.Enqueue("image", "album-a/two.jpg", work("a2")); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.Enqueue("image", "album-b/one.jpg", work("b1")); err != nil {
+		t.Fatal(err)
+	}
+	waitPending(t, queue, 3)
+
+	queue.View("tab-b", "album-b")
+	if got := queue.pendingCount(); got != 3 {
+		t.Fatalf("other tab folder should stay queued, pending %d", got)
+	}
+
+	queue.Leave("tab-a")
+	if got := queue.pendingCount(); got != 2 {
+		t.Fatalf("left tab folder should drop, pending %d", got)
+	}
+
+	release <- struct{}{}
+	if got := recv(t, started); got != "b1" {
+		t.Fatalf("remaining tab folder should run next, got %q", got)
+	}
+	release <- struct{}{}
+	select {
+	case name := <-started:
+		t.Fatalf("dropped job should not run, got %q", name)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func TestViewExpiresStaleTab(t *testing.T) {
+	store := testStore(t)
+	queue := newQueue(store, 1)
+	defer queue.Close()
+
+	now := time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
+	queue.now = func() time.Time { return now }
+
+	started := make(chan string, 8)
+	release := make(chan struct{})
+	work := func(name string) func() error {
+		return func() error {
+			started <- name
+			<-release
+			return nil
+		}
+	}
+
+	queue.View("tab-a", "album-a")
+	if err := queue.Enqueue("image", "album-a/one.jpg", work("a1")); err != nil {
+		t.Fatal(err)
+	}
+	if got := recv(t, started); got != "a1" {
+		t.Fatalf("first job should be current folder, got %q", got)
+	}
+	if err := queue.Enqueue("image", "album-a/two.jpg", work("a2")); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.Enqueue("image", "album-b/one.jpg", work("b1")); err != nil {
+		t.Fatal(err)
+	}
+	waitPending(t, queue, 3)
+
+	now = now.Add(viewerTTL + time.Second)
+	queue.View("tab-b", "album-b")
+	if got := queue.pendingCount(); got != 2 {
+		t.Fatalf("stale tab folder should drop, pending %d", got)
+	}
+
+	release <- struct{}{}
+	if got := recv(t, started); got != "b1" {
+		t.Fatalf("live tab folder should run next, got %q", got)
+	}
+	release <- struct{}{}
+	select {
+	case name := <-started:
+		t.Fatalf("expired tab job should not run, got %q", name)
 	case <-time.After(100 * time.Millisecond):
 	}
 }
@@ -177,7 +280,7 @@ func TestCancelledWaiterDropsOffFocusJob(t *testing.T) {
 		}
 	}
 
-	queue.Focus("album-a")
+	queue.View("tab", "album-a")
 	a1 := testRequest(t, store, "album-a/one.jpg")
 	go func() {
 		_, _ = queue.GetOrCreate(context.Background(), a1, generate("a1"))

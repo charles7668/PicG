@@ -61,6 +61,10 @@ func TestRoutesBrowseAndServePictures(t *testing.T) {
 		{path: "/assets/app.js", status: http.StatusOK, want: "cancelThumbnailWork", contentType: "text/javascript"},
 		{path: "/assets/app.js", status: http.StatusOK, want: "EventSource", contentType: "text/javascript"},
 		{path: "/assets/app.js", status: http.StatusOK, want: "/thumbnail-events", contentType: "text/javascript"},
+		{path: "/assets/app.js", status: http.StatusOK, want: "BroadcastChannel", contentType: "text/javascript"},
+		{path: "/assets/app.js", status: http.StatusOK, want: "navigator.locks", contentType: "text/javascript"},
+		{path: "/assets/app.js", status: http.StatusOK, want: "/thumbnail-focus", contentType: "text/javascript"},
+		{path: "/assets/app.js", status: http.StatusOK, want: "thumbnailFocusInterval", contentType: "text/javascript"},
 		{path: "/missing", status: http.StatusNotFound, want: "page not found", contentType: "text/plain"},
 	}
 
@@ -168,6 +172,22 @@ func TestThumbnailEventsNotifyWhenReady(t *testing.T) {
 		}
 	}
 	t.Fatal("did not receive ready thumbnail event")
+}
+
+func TestThumbnailFocusAcceptsTabView(t *testing.T) {
+	handler := routesWithRoot(t.TempDir())
+	request := httptest.NewRequest(http.MethodPost, "/thumbnail-focus", strings.NewReader("tab=tab-a&path=album"))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("expected status 204, got %d", recorder.Code)
+	}
+	missing := httptest.NewRecorder()
+	handler.ServeHTTP(missing, httptest.NewRequest(http.MethodPost, "/thumbnail-focus", strings.NewReader("path=album")))
+	if missing.Code != http.StatusBadRequest {
+		t.Fatalf("expected missing tab status 400, got %d", missing.Code)
+	}
 }
 
 func TestThumbnailMissDoesNotWaitForGeneration(t *testing.T) {

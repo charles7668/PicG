@@ -7,6 +7,7 @@
   let thumbnailEpoch = 0;
   const maxThumbnailTries = 60;
   const thumbnailRetryDelay = 1000;
+  const thumbnailFocusInterval = 15000;
   const recentThumbnailEvents = [];
 
   const thumbnailSrc = (image) => image.dataset.thumbnailUrl || image.getAttribute("src") || "";
@@ -54,32 +55,100 @@
     if (recentThumbnailEvents.length > 64) recentThumbnailEvents.shift();
   };
 
-  const connectThumbnailEvents = () => {
-    if (!window.EventSource || !document.querySelector("#gallery-content")) return;
-    const source = new EventSource("/thumbnail-events");
-    let opened = false;
-    source.addEventListener("open", () => {
-      if (!opened) {
-        opened = true;
-        return;
-      }
-      document.querySelectorAll("img[data-thumbnail]").forEach((image) => {
-        if (image.dataset.thumbnailAborted === "true") return;
-        if (image.complete && image.naturalWidth > 0) return;
-        rememberThumbnailUrl(image, thumbnailSrc(image));
-        reloadThumbnail(image);
-      });
+  const thumbnailTabId = (() => {
+    try {
+      if (crypto.randomUUID) return crypto.randomUUID();
+    } catch {
+    }
+    return "tab-" + Math.random().toString(16).slice(2);
+  })();
+
+  const reloadIncompleteThumbnails = () => {
+    document.querySelectorAll("img[data-thumbnail]").forEach((image) => {
+      if (image.dataset.thumbnailAborted === "true") return;
+      if (image.complete && image.naturalWidth > 0) return;
+      rememberThumbnailUrl(image, thumbnailSrc(image));
+      reloadThumbnail(image);
     });
-    source.addEventListener("thumbnail", (event) => {
-      let data;
-      try {
-        data = JSON.parse(event.data);
-      } catch {
-        return;
-      }
+  };
+
+  const focusThumbnailQueue = () => {
+    if (!document.querySelector("#gallery-content")) return;
+    const path = document.querySelector("#current-path")?.value ?? "";
+    const body = new URLSearchParams({ tab: thumbnailTabId, path });
+    fetch("/thumbnail-focus", { method: "POST", body, keepalive: true }).catch(() => {});
+  };
+
+  const leaveThumbnailQueue = () => {
+    const body = new URLSearchParams({ tab: thumbnailTabId, leave: "1" });
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon("/thumbnail-focus", body);
+      return;
+    }
+    fetch("/thumbnail-focus", { method: "POST", body, keepalive: true }).catch(() => {});
+  };
+
+  const connectThumbnailEvents = () => {
+    if (!document.querySelector("#gallery-content")) return;
+
+    const applyPayload = (data) => {
+      if (!data?.kind) return;
       rememberThumbnailEvent(data);
       applyThumbnailEvent(data);
-    });
+    };
+
+    let channel = null;
+    if (window.BroadcastChannel) {
+      channel = new BroadcastChannel("picg-thumbnail-events");
+      channel.addEventListener("message", (event) => {
+        const data = event.data;
+        if (data?.type === "reconnect") {
+          reloadIncompleteThumbnails();
+          return;
+        }
+        applyPayload(data);
+      });
+    }
+
+    const bindSource = (source) => {
+      let opened = false;
+      source.addEventListener("open", () => {
+        if (opened) reloadIncompleteThumbnails();
+        else opened = true;
+        channel?.postMessage({ type: "reconnect" });
+      });
+      source.addEventListener("thumbnail", (event) => {
+        let data;
+        try {
+          data = JSON.parse(event.data);
+        } catch {
+          return;
+        }
+        applyPayload(data);
+        channel?.postMessage(data);
+      });
+      return source;
+    };
+
+    if (window.EventSource && navigator.locks?.request) {
+      navigator.locks.request("picg-thumbnail-events", () => new Promise(() => {
+        bindSource(new EventSource("/thumbnail-events"));
+      }));
+      return;
+    }
+    if (!window.EventSource) return;
+
+    let source = null;
+    const syncSource = () => {
+      if (document.hidden) {
+        source?.close();
+        source = null;
+        return;
+      }
+      if (!source) source = bindSource(new EventSource("/thumbnail-events"));
+    };
+    document.addEventListener("visibilitychange", syncSource);
+    syncSource();
   };
 
   const prepareThumbnails = (scope = document) => {
@@ -137,6 +206,9 @@
   splitMediaGrids();
   prepareThumbnails();
   connectThumbnailEvents();
+  focusThumbnailQueue();
+  window.setInterval(focusThumbnailQueue, thumbnailFocusInterval);
+  window.addEventListener("pagehide", leaveThumbnailQueue);
 
   const persistSort = (value) => {
     document.cookie = `picg-sort=${encodeURIComponent(value)}; path=/; max-age=31536000; SameSite=Lax`;
@@ -631,10 +703,13 @@
   document.addEventListener("htmx:afterSwap", (event) => {
     splitMediaGrids(event.target);
     prepareThumbnails(event.target);
+    focusThumbnailQueue();
     window.scrollTo({ top: 0, behavior: "smooth" });
   });
 
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) prepareThumbnails();
+    if (document.hidden) return;
+    focusThumbnailQueue();
+    prepareThumbnails();
   });
 })();

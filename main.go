@@ -88,9 +88,7 @@ func routesWithStorage(root, databasePath, thumbnailDir string, cleanupWhenIdle 
 	}
 	mux.Handle("GET /assets/", http.StripPrefix("/", http.FileServer(http.FS(assets))))
 	browse := func(r *http.Request) gallery.PageData {
-		data := browser.BrowseFiltered(r.URL.Query().Get("path"), r.URL.Query().Get("q"), requestSort(r), r.URL.Query().Get("media"))
-		thumbnailQueue.Focus(data.CurrentPath)
-		return data
+		return browser.BrowseFiltered(r.URL.Query().Get("path"), r.URL.Query().Get("q"), requestSort(r), r.URL.Query().Get("media"))
 	}
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
@@ -224,6 +222,20 @@ func routesWithStorage(root, databasePath, thumbnailDir string, cleanupWhenIdle 
 	}
 	mux.HandleFunc("GET /thumbnail", func(w http.ResponseWriter, r *http.Request) { serveThumbnail(w, r, "") })
 	mux.HandleFunc("GET /thumbnail-events", thumbnailEvents.Write)
+	mux.HandleFunc("POST /thumbnail-focus", func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		tab := r.Form.Get("tab")
+		if tab == "" {
+			http.Error(w, "missing tab", http.StatusBadRequest)
+			return
+		}
+		if r.Form.Get("leave") == "1" {
+			thumbnailQueue.Leave(tab)
+		} else {
+			thumbnailQueue.View(tab, r.Form.Get("path"))
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 	// Compatibility endpoints for bookmarks and pages cached before the unified
 	// thumbnail route was introduced.
 	mux.HandleFunc("GET /cover", func(w http.ResponseWriter, r *http.Request) { serveThumbnail(w, r, "cover") })

@@ -23,7 +23,7 @@ type Event struct {
 	Status string `json:"status"`
 }
 
-// Hub broadcasts thumbnail events to one SSE stream per browser tab.
+// Hub broadcasts thumbnail events. Browsers share one SSE stream across tabs.
 type Hub struct {
 	mu      sync.Mutex
 	seq     uint64

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"time"
 )
 
 type jobResult struct {
@@ -21,19 +22,28 @@ type job struct {
 	waiters []chan jobResult
 }
 
-// Queue serializes thumbnail generation and prefers the folder the user just
-// opened. In-flight work finishes; waiting jobs from other folders run later.
+type tabView struct {
+	folder string
+	seen   time.Time
+}
+
+// Queue serializes thumbnail generation and prefers folders currently open in
+// a browser tab. In-flight work finishes; waiting jobs from other folders run later.
 type Queue struct {
 	store   *Store
 	mu      sync.Mutex
 	cond    *sync.Cond
 	pending map[string]*job
-	focus   string
+	viewers map[string]tabView
+	now     func() time.Time
 	seq     uint64
 	closed  bool
 }
 
-const defaultWorkers = 6
+const (
+	defaultWorkers = 6
+	viewerTTL      = 2 * time.Minute
+)
 
 func NewQueue(store *Store) *Queue {
 	return newQueue(store, defaultWorkers)
@@ -43,7 +53,7 @@ func newQueue(store *Store, workers int) *Queue {
 	if workers < 1 {
 		workers = 1
 	}
-	queue := &Queue{store: store, pending: make(map[string]*job)}
+	queue := &Queue{store: store, pending: make(map[string]*job), viewers: make(map[string]tabView), now: time.Now}
 	queue.cond = sync.NewCond(&queue.mu)
 	for range workers {
 		go queue.loop()
@@ -51,13 +61,23 @@ func newQueue(store *Store, workers int) *Queue {
 	return queue
 }
 
-// Focus marks a gallery folder as the one the user is currently viewing.
-// Pending jobs with no waiters from other folders are dropped. In-flight work
-// is not cancelled. Remaining jobs whose parent folder matches run first.
-func (q *Queue) Focus(folder string) {
+// View records the folder one browser tab is showing. It is a heartbeat:
+// each call refreshes that tab and forgets tabs silent longer than viewerTTL.
+// Jobs stay queued while any live tab is still in their folder.
+func (q *Queue) View(tab, folder string) {
 	folder = strings.Trim(folder, "/")
 	q.mu.Lock()
-	q.focus = folder
+	q.expireViewersLocked()
+	q.viewers[tab] = tabView{folder: folder, seen: q.now()}
+	q.dropAbandonedLocked()
+	q.mu.Unlock()
+}
+
+// Leave removes a tab early. Stale tabs are also forgotten here.
+func (q *Queue) Leave(tab string) {
+	q.mu.Lock()
+	q.expireViewersLocked()
+	delete(q.viewers, tab)
 	q.dropAbandonedLocked()
 	q.mu.Unlock()
 }
@@ -175,17 +195,35 @@ func (q *Queue) pickLocked() *job {
 }
 
 func (q *Queue) aheadLocked(item, other *job) bool {
-	itemHot := item.folder == q.focus
-	otherHot := other.folder == q.focus
+	itemHot := q.viewingLocked(item.folder)
+	otherHot := q.viewingLocked(other.folder)
 	if itemHot != otherHot {
 		return itemHot
 	}
 	return item.seq < other.seq
 }
 
+func (q *Queue) viewingLocked(folder string) bool {
+	for _, viewed := range q.viewers {
+		if viewed.folder == folder {
+			return true
+		}
+	}
+	return false
+}
+
+func (q *Queue) expireViewersLocked() {
+	now := q.now()
+	for tab, viewed := range q.viewers {
+		if now.Sub(viewed.seen) >= viewerTTL {
+			delete(q.viewers, tab)
+		}
+	}
+}
+
 func (q *Queue) dropAbandonedLocked() {
 	for key, item := range q.pending {
-		if item.running || len(item.waiters) > 0 || item.folder == q.focus {
+		if item.running || len(item.waiters) > 0 || q.viewingLocked(item.folder) {
 			continue
 		}
 		delete(q.pending, key)
@@ -200,7 +238,7 @@ func (q *Queue) removeWaiter(key string, wait chan jobResult) {
 		return
 	}
 	item.waiters = withoutWaiter(item.waiters, wait)
-	if item.running || len(item.waiters) > 0 || item.folder == q.focus {
+	if item.running || len(item.waiters) > 0 || q.viewingLocked(item.folder) {
 		return
 	}
 	delete(q.pending, key)
