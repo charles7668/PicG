@@ -107,10 +107,7 @@ func routesWithStorage(root, databasePath, thumbnailDir string, cleanupWhenIdle 
 			}, func(output string) error {
 				const maxGoImageBytes = 6 << 20
 				videoSource := kind == "video" || isVideoFilename(input)
-				maxDimension, jpegQuality, ffmpegQ := 640, 78, 5
-				if kind == "cover" {
-					maxDimension, jpegQuality, ffmpegQ = 240, 62, 8
-				}
+				const maxDimension, jpegQuality, ffmpegQ = 640, 78, 5
 				if !videoSource && info.Size() <= maxGoImageBytes {
 					if imageErr := thumbnail.RenderImage(input, output, maxDimension, jpegQuality); imageErr == nil {
 						return nil

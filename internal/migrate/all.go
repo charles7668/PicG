@@ -5,4 +5,5 @@ var All = []Migration{
 	CreateThumbnailMappings{},
 	CreateSettings{},
 	CreateVideoInfo{},
+	DeleteCoverThumbnails{},
 }

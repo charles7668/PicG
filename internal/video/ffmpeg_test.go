@@ -66,7 +66,7 @@ func TestRenderThumbnailCreatesJPEG(t *testing.T) {
 	}
 }
 
-func TestRenderCoverIsAtMost240px(t *testing.T) {
+func TestRenderThumbnailScalesToLongEdge(t *testing.T) {
 	binary, err := exec.LookPath("ffmpeg")
 	if err != nil {
 		t.Skip("FFmpeg is not installed in this test environment")
@@ -77,9 +77,9 @@ func TestRenderCoverIsAtMost240px(t *testing.T) {
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("create image fixture: %v: %s", err, output)
 	}
-	output := filepath.Join(work, "cover.jpg")
+	output := filepath.Join(work, "thumb.jpg")
 	ffmpeg := New(func() string { return binary })
-	if err := ffmpeg.RenderThumbnail(context.Background(), input, output, false, 240, 8); err != nil {
+	if err := ffmpeg.RenderThumbnail(context.Background(), input, output, false, 640, 5); err != nil {
 		t.Fatal(err)
 	}
 	file, err := os.Open(output)
@@ -91,7 +91,7 @@ func TestRenderCoverIsAtMost240px(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Width > 240 || cfg.Height > 240 {
-		t.Fatalf("cover %dx%d exceeds 240", cfg.Width, cfg.Height)
+	if cfg.Width != 640 || cfg.Height != 480 {
+		t.Fatalf("thumbnail = %dx%d, want 640x480", cfg.Width, cfg.Height)
 	}
 }
