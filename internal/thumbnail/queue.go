@@ -52,11 +52,13 @@ func newQueue(store *Store, workers int) *Queue {
 }
 
 // Focus marks a gallery folder as the one the user is currently viewing.
-// Jobs whose parent folder matches run before everything else still waiting.
+// Pending jobs with no waiters from other folders are dropped. In-flight work
+// is not cancelled. Remaining jobs whose parent folder matches run first.
 func (q *Queue) Focus(folder string) {
 	folder = strings.Trim(folder, "/")
 	q.mu.Lock()
 	q.focus = folder
+	q.dropAbandonedLocked()
 	q.mu.Unlock()
 }
 
@@ -85,6 +87,7 @@ func (q *Queue) GetOrCreate(ctx context.Context, request Request, generate func(
 	case result := <-wait:
 		return result.path, result.err
 	case <-ctx.Done():
+		q.removeWaiter(key, wait)
 		return "", ctx.Err()
 	}
 }
@@ -178,6 +181,39 @@ func (q *Queue) aheadLocked(item, other *job) bool {
 		return itemHot
 	}
 	return item.seq < other.seq
+}
+
+func (q *Queue) dropAbandonedLocked() {
+	for key, item := range q.pending {
+		if item.running || len(item.waiters) > 0 || item.folder == q.focus {
+			continue
+		}
+		delete(q.pending, key)
+	}
+}
+
+func (q *Queue) removeWaiter(key string, wait chan jobResult) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	item := q.pending[key]
+	if item == nil {
+		return
+	}
+	item.waiters = withoutWaiter(item.waiters, wait)
+	if item.running || len(item.waiters) > 0 || item.folder == q.focus {
+		return
+	}
+	delete(q.pending, key)
+}
+
+func withoutWaiter(waiters []chan jobResult, wait chan jobResult) []chan jobResult {
+	kept := waiters[:0]
+	for _, candidate := range waiters {
+		if candidate != wait {
+			kept = append(kept, candidate)
+		}
+	}
+	return kept
 }
 
 func (q *Queue) pendingCount() int {

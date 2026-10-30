@@ -2,6 +2,7 @@ package thumbnail
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"sync"
@@ -61,6 +62,157 @@ func TestQueuePrefersFocusedFolder(t *testing.T) {
 	}
 	release <- struct{}{}
 	wg.Wait()
+}
+
+func TestPickKeepsSmallerSeqWhenNeitherFolderIsFocused(t *testing.T) {
+	store := testStore(t)
+	queue := newQueue(store, 1)
+	defer queue.Close()
+
+	started := make(chan string, 8)
+	release := make(chan struct{})
+	generate := func(name string) func(string) error {
+		return func(path string) error {
+			started <- name
+			<-release
+			return os.WriteFile(path, []byte(name), 0o644)
+		}
+	}
+
+	queue.Focus("album-a")
+	var wg sync.WaitGroup
+	enqueue := func(identity, name string) {
+		t.Helper()
+		request := testRequest(t, store, identity)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := queue.GetOrCreate(context.Background(), request, generate(name)); err != nil {
+				t.Errorf("%s: %v", name, err)
+			}
+		}()
+	}
+
+	enqueue("album-a/zero.jpg", "a0")
+	if got := recv(t, started); got != "a0" {
+		t.Fatalf("first job should be current folder, got %q", got)
+	}
+	enqueue("album-a/one.jpg", "a1")
+	waitPending(t, queue, 2)
+	enqueue("album-b/one.jpg", "b1")
+	waitPending(t, queue, 3)
+
+	queue.Focus("album-c")
+	release <- struct{}{}
+	if got := recv(t, started); got != "a1" {
+		t.Fatalf("off-focus jobs should keep smaller seq first, got %q", got)
+	}
+	release <- struct{}{}
+	if got := recv(t, started); got != "b1" {
+		t.Fatalf("expected remaining waiter job next, got %q", got)
+	}
+	release <- struct{}{}
+	wg.Wait()
+}
+
+func TestFocusDropsAbandonedEnqueueJobs(t *testing.T) {
+	store := testStore(t)
+	queue := newQueue(store, 1)
+	defer queue.Close()
+
+	started := make(chan string, 8)
+	release := make(chan struct{})
+	work := func(name string) func() error {
+		return func() error {
+			started <- name
+			<-release
+			return nil
+		}
+	}
+
+	queue.Focus("album-a")
+	if err := queue.Enqueue("image", "album-a/one.jpg", work("a1")); err != nil {
+		t.Fatal(err)
+	}
+	if got := recv(t, started); got != "a1" {
+		t.Fatalf("first job should be current folder, got %q", got)
+	}
+	if err := queue.Enqueue("image", "album-a/two.jpg", work("a2")); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.Enqueue("image", "album-b/one.jpg", work("b1")); err != nil {
+		t.Fatal(err)
+	}
+	waitPending(t, queue, 3)
+
+	queue.Focus("album-b")
+	if got := queue.pendingCount(); got != 2 {
+		t.Fatalf("abandoned enqueue should be dropped, pending %d", got)
+	}
+
+	release <- struct{}{}
+	if got := recv(t, started); got != "b1" {
+		t.Fatalf("after entering album-b, expected that folder next, got %q", got)
+	}
+	release <- struct{}{}
+	select {
+	case name := <-started:
+		t.Fatalf("dropped job should not run, got %q", name)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func TestCancelledWaiterDropsOffFocusJob(t *testing.T) {
+	store := testStore(t)
+	queue := newQueue(store, 1)
+	defer queue.Close()
+
+	started := make(chan string, 8)
+	release := make(chan struct{})
+	generate := func(name string) func(string) error {
+		return func(path string) error {
+			started <- name
+			<-release
+			return os.WriteFile(path, []byte(name), 0o644)
+		}
+	}
+
+	queue.Focus("album-a")
+	a1 := testRequest(t, store, "album-a/one.jpg")
+	go func() {
+		_, _ = queue.GetOrCreate(context.Background(), a1, generate("a1"))
+	}()
+	if got := recv(t, started); got != "a1" {
+		t.Fatalf("got %q", got)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	b1 := testRequest(t, store, "album-b/one.jpg")
+	done := make(chan error, 1)
+	go func() {
+		_, err := queue.GetOrCreate(ctx, b1, generate("b1"))
+		done <- err
+	}()
+	waitPending(t, queue, 2)
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected canceled, got %v", err)
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for queue.pendingCount() != 1 {
+		if time.Now().After(deadline) {
+			t.Fatalf("canceled off-focus job still pending, have %d", queue.pendingCount())
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	release <- struct{}{}
+	select {
+	case name := <-started:
+		t.Fatalf("canceled job should not run, got %q", name)
+	case <-time.After(100 * time.Millisecond):
+	}
 }
 
 func TestEnqueueDoesNotWaitForWork(t *testing.T) {
