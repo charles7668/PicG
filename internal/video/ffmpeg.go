@@ -3,6 +3,7 @@ package video
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -70,20 +71,65 @@ func (f *FFmpeg) RenderThumbnail(ctx context.Context, input, output string, isVi
 	return fmt.Errorf("ffmpeg thumbnail: %w", lastError)
 }
 
-func (f *FFmpeg) Duration(ctx context.Context, input string) (float64, error) {
+type Info struct {
+	Duration float64
+	Direct   bool
+}
+
+type probeOutput struct {
+	Streams []struct {
+		CodecName string `json:"codec_name"`
+		CodecType string `json:"codec_type"`
+	} `json:"streams"`
+	Format struct {
+		Duration   string `json:"duration"`
+		FormatName string `json:"format_name"`
+	} `json:"format"`
+}
+
+func (f *FFmpeg) Probe(ctx context.Context, input string) (Info, error) {
 	probeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	output, err := exec.CommandContext(probeCtx, f.ffprobePath(),
-		"-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", input,
+		"-v", "error",
+		"-show_entries", "format=duration,format_name",
+		"-show_entries", "stream=codec_type,codec_name",
+		"-of", "json",
+		input,
 	).Output()
 	if err != nil {
-		return 0, fmt.Errorf("ffprobe duration: %w", err)
+		return Info{}, fmt.Errorf("ffprobe: %w", err)
 	}
-	duration, err := strconv.ParseFloat(strings.TrimSpace(string(output)), 64)
+	var parsed probeOutput
+	if err := json.Unmarshal(output, &parsed); err != nil {
+		return Info{}, fmt.Errorf("ffprobe: %w", err)
+	}
+	duration, err := strconv.ParseFloat(strings.TrimSpace(parsed.Format.Duration), 64)
 	if err != nil || duration <= 0 {
-		return 0, fmt.Errorf("ffprobe duration: invalid value %q", strings.TrimSpace(string(output)))
+		return Info{}, fmt.Errorf("ffprobe duration: invalid value %q", strings.TrimSpace(parsed.Format.Duration))
 	}
-	return duration, nil
+	return Info{Duration: duration, Direct: directMP4(parsed)}, nil
+}
+
+func directMP4(parsed probeOutput) bool {
+	if !strings.Contains(parsed.Format.FormatName, "mp4") {
+		return false
+	}
+	hasVideo := false
+	for _, stream := range parsed.Streams {
+		switch stream.CodecType {
+		case "video":
+			if stream.CodecName != "h264" {
+				return false
+			}
+			hasVideo = true
+		case "audio":
+			if stream.CodecName != "aac" {
+				return false
+			}
+		}
+	}
+	return hasVideo
 }
 
 func (f *FFmpeg) ffprobePath() string {

@@ -4,4 +4,5 @@ package migrate
 var All = []Migration{
 	CreateThumbnailMappings{},
 	CreateSettings{},
+	CreateVideoInfo{},
 }

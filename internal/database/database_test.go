@@ -18,14 +18,17 @@ func TestOpenAppliesSchemaMigrations(t *testing.T) {
 	if err := db.QueryRow(`SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 2 {
-		t.Fatalf("expected schema version 2, got %d", version)
+	if version != 3 {
+		t.Fatalf("expected schema version 3, got %d", version)
 	}
 	var table string
 	if err := db.QueryRow(`SELECT name FROM sqlite_master WHERE type='table' AND name='thumbnail_mappings'`).Scan(&table); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.QueryRow(`SELECT name FROM sqlite_master WHERE type='table' AND name='settings'`).Scan(&table); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT name FROM sqlite_master WHERE type='table' AND name='video_info'`).Scan(&table); err != nil {
 		t.Fatal(err)
 	}
 }

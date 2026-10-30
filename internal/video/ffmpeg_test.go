@@ -17,6 +17,33 @@ func TestStatusReportsMissingBinary(t *testing.T) {
 	}
 }
 
+func TestDirectMP4RequiresH264(t *testing.T) {
+	parsed := probeOutput{}
+	parsed.Format.FormatName = "mov,mp4,m4a,3gp,3g2,mj2"
+	parsed.Streams = []struct {
+		CodecName string `json:"codec_name"`
+		CodecType string `json:"codec_type"`
+	}{
+		{CodecName: "h264", CodecType: "video"},
+		{CodecName: "aac", CodecType: "audio"},
+	}
+	if !directMP4(parsed) {
+		t.Fatal("h264/aac mp4 should play directly")
+	}
+	parsed.Streams[1].CodecName = "ac3"
+	if directMP4(parsed) {
+		t.Fatal("ac3 audio should transcode")
+	}
+	parsed.Streams = parsed.Streams[:1]
+	if !directMP4(parsed) {
+		t.Fatal("h264 without audio should play directly")
+	}
+	parsed.Format.FormatName = "matroska,webm"
+	if directMP4(parsed) {
+		t.Fatal("mkv should transcode")
+	}
+}
+
 func TestRenderThumbnailCreatesJPEG(t *testing.T) {
 	binary, err := exec.LookPath("ffmpeg")
 	if err != nil {

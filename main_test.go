@@ -67,6 +67,7 @@ func TestRoutesBrowseAndServePictures(t *testing.T) {
 		{path: "/assets/app.js", status: http.StatusOK, want: "thumbnailFocusInterval", contentType: "text/javascript"},
 		{path: "/assets/app.js", status: http.StatusOK, want: "maxThumbnailRequests", contentType: "text/javascript"},
 		{path: "/assets/app.js", status: http.StatusOK, want: "thumbnailCached", contentType: "text/javascript"},
+		{path: "/assets/app.js", status: http.StatusOK, want: "X-Video-Direct", contentType: "text/javascript"},
 		{path: "/gallery?path=Trips", status: http.StatusOK, want: "data-thumbnail-url", contentType: "text/html"},
 		{path: "/missing", status: http.StatusNotFound, want: "page not found", contentType: "text/plain"},
 	}
@@ -337,6 +338,54 @@ func TestVideoRouteStreamsFFmpegMP4(t *testing.T) {
 	}
 	if !strings.Contains(recorder.Body.String(), "ftyp") || !strings.Contains(recorder.Body.String(), "moof") {
 		t.Fatal("expected fragmented MP4 output")
+	}
+}
+
+func TestVideoRouteServesDirectMP4(t *testing.T) {
+	binary, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("FFmpeg is not installed in this test environment")
+	}
+	root := t.TempDir()
+	input := filepath.Join(root, "clip.mp4")
+	command := exec.Command(binary, "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=blue:s=32x32:d=1", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an", "-y", input)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Skipf("libx264 is unavailable: %v: %s", err, output)
+	}
+	handler := routesWithRoot(root)
+	head := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodHead, "/video/clip.mp4", nil)
+	handler.ServeHTTP(head, request)
+	if head.Code != http.StatusOK {
+		t.Fatalf("expected HEAD 200, got %d: %s", head.Code, head.Body.String())
+	}
+	if got := head.Header().Get("X-Video-Direct"); got != "1" {
+		t.Fatalf("expected direct play, got %q", got)
+	}
+	if got := head.Header().Get("X-Video-Duration"); got == "" {
+		t.Fatal("expected video duration header")
+	}
+	if head.Body.Len() != 0 {
+		t.Fatal("HEAD should not write a body")
+	}
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/video/clip.mp4", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if got := recorder.Header().Get("X-Video-Direct"); got != "1" {
+		t.Fatalf("expected direct play, got %q", got)
+	}
+	if got := recorder.Header().Get("Accept-Ranges"); got != "bytes" {
+		t.Fatalf("expected byte ranges, got %q", got)
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, "ftyp") {
+		t.Fatal("expected mp4 output")
+	}
+	if strings.Contains(body, "moof") {
+		t.Fatal("direct mp4 should not be transcoded to fragmented mp4")
 	}
 }
 

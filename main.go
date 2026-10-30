@@ -81,6 +81,7 @@ func routesWithStorage(root, databasePath, thumbnailDir string, cleanupWhenIdle 
 	}
 	thumbnailQueue := thumbnail.NewQueue(thumbnailStore)
 	thumbnailEvents := thumbnail.NewHub()
+	videoInfo := video.NewInfoStore(db)
 	ffmpeg := video.New(func() string { return settingsStore.Get().EffectiveFFmpegPath() })
 	assets, err := fs.Sub(publicFiles, "public")
 	if err != nil {
@@ -186,24 +187,52 @@ func routesWithStorage(root, databasePath, thumbnailDir string, cleanupWhenIdle 
 		w.Header().Set("Content-Disposition", "inline")
 		http.ServeContent(w, r, info.Name(), info.ModTime(), file)
 	})
-	mux.HandleFunc("GET /video/{path...}", func(w http.ResponseWriter, r *http.Request) {
-		input, _, err := browser.ResolveVideo(r.PathValue("path"))
+	serveVideo := func(w http.ResponseWriter, r *http.Request) {
+		rawPath := r.PathValue("path")
+		input, stat, err := browser.ResolveVideo(rawPath)
 		if err != nil {
 			http.NotFound(w, r)
 			return
+		}
+		identity, keyErr := browser.ThumbnailKey("video", rawPath)
+		if keyErr != nil {
+			http.NotFound(w, r)
+			return
+		}
+		info, infoErr := videoInfo.Get(r.Context(), identity, input, stat, func(ctx context.Context) (video.Info, error) {
+			return ffmpeg.Probe(ctx, input)
+		})
+		if infoErr != nil {
+			log.Printf("video probe %q: %v", input, infoErr)
 		}
 		start, err := strconv.ParseFloat(r.URL.Query().Get("start"), 64)
 		if err != nil || start < 0 || math.IsNaN(start) || math.IsInf(start, 0) {
 			start = 0
 		}
-		duration, durationErr := ffmpeg.Duration(r.Context(), input)
-		if durationErr == nil {
-			if start >= duration {
+		if infoErr == nil {
+			if start >= info.Duration {
 				start = 0
 			}
-			w.Header().Set("X-Video-Duration", strconv.FormatFloat(duration, 'f', 3, 64))
-		} else {
-			log.Printf("video duration %q: %v", input, durationErr)
+			w.Header().Set("X-Video-Duration", strconv.FormatFloat(info.Duration, 'f', 3, 64))
+			if info.Direct {
+				w.Header().Set("X-Video-Direct", "1")
+			}
+		}
+		if r.Method == http.MethodHead {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if infoErr == nil && info.Direct {
+			file, fileInfo, openErr := browser.Open(rawPath)
+			if openErr != nil {
+				http.NotFound(w, r)
+				return
+			}
+			defer file.Close()
+			w.Header().Set("Cache-Control", "private, max-age=3600")
+			w.Header().Set("Content-Disposition", "inline")
+			http.ServeContent(w, r, fileInfo.Name(), fileInfo.ModTime(), file)
+			return
 		}
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Disposition", "inline")
@@ -222,7 +251,9 @@ func routesWithStorage(root, databasePath, thumbnailDir string, cleanupWhenIdle 
 				http.Error(w, "unable to stream video", http.StatusServiceUnavailable)
 			}
 		}
-	})
+	}
+	mux.HandleFunc("GET /video/{path...}", serveVideo)
+	mux.HandleFunc("HEAD /video/{path...}", serveVideo)
 	mux.HandleFunc("GET /cover-original", func(w http.ResponseWriter, r *http.Request) {
 		file, info, err := browser.OpenCover(r.URL.Query().Get("path"))
 		if err != nil {

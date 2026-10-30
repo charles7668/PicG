@@ -368,6 +368,15 @@
 
   const streamVideo = async (video, src, autoplay = true) => {
     stopVideoElement(video);
+    try {
+      const inspect = await fetch(src, { method: "HEAD", cache: "no-store" });
+      if (inspect.ok && inspect.headers.get("X-Video-Direct") === "1") {
+        video.src = src;
+        if (autoplay) await video.play();
+        return;
+      }
+    } catch {
+    }
     if (!window.MediaSource || !MediaSource.isTypeSupported(streamMimeType)) {
       video.src = videoStreamURL(src, 0);
       if (autoplay) await video.play();
