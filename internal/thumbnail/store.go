@@ -282,6 +282,108 @@ func (s *Store) CachedFile(ctx context.Context, kind, identity string, mtimeNS, 
 	return output, true, nil
 }
 
+type Presence struct {
+	Kind       string
+	Identity   string
+	MTimeNS    int64
+	Size       int64
+	MatchStamp bool
+}
+
+func PresenceID(kind, identity string) string {
+	kind, identity, err := normalizeKey(kind, identity)
+	if err != nil {
+		return ""
+	}
+	return mappingKey(kind, identity)
+}
+
+const presenceQueryChunk = 400
+
+// Present reports which identities already have a usable JPEG. One SQL query
+// per chunk; stamp matching follows CachedFile (covers skip the URL stamp).
+func (s *Store) Present(ctx context.Context, items []Presence) (map[string]bool, error) {
+	found := make(map[string]bool, len(items))
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	var missing []Presence
+	for _, item := range items {
+		kind, identity, err := normalizeKey(item.Kind, item.Identity)
+		if err != nil {
+			continue
+		}
+		item.Kind = kind
+		item.Identity = identity
+		key := mappingKey(kind, identity)
+		if mapped, ok := s.cached(key); ok {
+			if s.usableMapping(mapped, item) {
+				found[key] = true
+			}
+			continue
+		}
+		missing = append(missing, item)
+	}
+	for start := 0; start < len(missing); start += presenceQueryChunk {
+		end := min(start+presenceQueryChunk, len(missing))
+		if err := s.loadPresenceChunk(ctx, missing[start:end], found); err != nil {
+			return nil, err
+		}
+	}
+	return found, nil
+}
+
+func (s *Store) loadPresenceChunk(ctx context.Context, items []Presence, found map[string]bool) error {
+	if len(items) == 0 {
+		return nil
+	}
+	var query strings.Builder
+	args := make([]any, 0, len(items)*2)
+	query.WriteString(`SELECT source_kind, source_path, id, source_file_path, source_hash, file_name, source_size, source_mtime_ns FROM thumbnail_mappings WHERE (source_kind, source_path) IN (`)
+	for i, item := range items {
+		if i > 0 {
+			query.WriteByte(',')
+		}
+		query.WriteString("(?,?)")
+		args = append(args, item.Kind, item.Identity)
+	}
+	query.WriteByte(')')
+	rows, err := s.db.QueryContext(ctx, query.String(), args...)
+	if err != nil {
+		return fmt.Errorf("find thumbnail mappings: %w", err)
+	}
+	defer rows.Close()
+	wanted := make(map[string]Presence, len(items))
+	for _, item := range items {
+		wanted[mappingKey(item.Kind, item.Identity)] = item
+	}
+	for rows.Next() {
+		var kind, identity string
+		var item mapping
+		if err := rows.Scan(&kind, &identity, &item.ID, &item.SourceFilePath, &item.SourceHash, &item.FileName, &item.SourceSize, &item.SourceMTimeNS); err != nil {
+			return fmt.Errorf("scan thumbnail mappings: %w", err)
+		}
+		key := mappingKey(kind, identity)
+		s.cacheMu.Lock()
+		s.cacheMappingLocked(key, item)
+		s.cacheMu.Unlock()
+		queryItem, ok := wanted[key]
+		if ok && s.usableMapping(item, queryItem) {
+			found[key] = true
+		}
+	}
+	return rows.Err()
+}
+
+func (s *Store) usableMapping(item mapping, query Presence) bool {
+	if query.MatchStamp && (item.SourceSize != query.Size || item.SourceMTimeNS != query.MTimeNS) {
+		return false
+	}
+	output := filepath.Join(s.dir, item.FileName)
+	info, err := os.Stat(output)
+	return err == nil && info.Mode().IsRegular() && info.Size() > 0
+}
+
 // GetOrCreate returns the persistent thumbnail mapped to a logical gallery
 // path. The full digest and the original path are both stored: the digest picks
 // a compact filename, while the path proves identity if two hashes collide.

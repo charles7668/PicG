@@ -201,7 +201,7 @@
   const prepareThumbnails = (scope = document) => {
     scope.querySelectorAll?.("img[data-thumbnail]").forEach((image) => {
       if (image.complete && image.naturalWidth > 0) image.classList.add("is-loaded");
-      else scheduleThumbnail(image);
+      else if (image.dataset.thumbnailCached === "true") scheduleThumbnail(image);
     });
     recentThumbnailEvents.forEach(applyThumbnailEvent);
   };

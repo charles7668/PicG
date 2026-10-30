@@ -54,23 +54,25 @@ type Directory struct {
 	Href             string
 	CoverURL         string
 	CoverOriginalURL string
+	CoverCached      bool
 	PhotoCount       int
 	FolderCount      int
 	Modified         string
-	modifiedAt       time.Time
-	sizeBytes        int64
+	ModifiedAt       time.Time
+	SizeBytes        int64
 }
 
 type Photo struct {
-	Name         string
-	Path         string
-	URL          string
-	ThumbnailURL string
-	Kind         string
-	Modified     string
-	Size         string
-	modifiedAt   time.Time
-	sizeBytes    int64
+	Name            string
+	Path            string
+	URL             string
+	ThumbnailURL    string
+	ThumbnailCached bool
+	Kind            string
+	Modified        string
+	Size            string
+	ModifiedAt      time.Time
+	SizeBytes       int64
 }
 
 type PageData struct {
@@ -182,7 +184,7 @@ func (b *Browser) BrowseFiltered(rawPath, query, sortKey, mediaFilter string) Pa
 				CoverURL:         coverURL(entryPath, entryInfo.ModTime()),
 				CoverOriginalURL: coverOriginalURL(entryPath),
 				Modified:         formatDate(entryInfo.ModTime()),
-				modifiedAt:       entryInfo.ModTime(),
+				ModifiedAt:       entryInfo.ModTime(),
 			})
 			continue
 		}
@@ -202,8 +204,8 @@ func (b *Browser) BrowseFiltered(rawPath, query, sortKey, mediaFilter string) Pa
 			Kind:         kind,
 			Modified:     formatDate(entryInfo.ModTime()),
 			Size:         formatBytes(entryInfo.Size()),
-			modifiedAt:   entryInfo.ModTime(),
-			sizeBytes:    entryInfo.Size(),
+			ModifiedAt:   entryInfo.ModTime(),
+			SizeBytes:    entryInfo.Size(),
 		})
 	}
 	if data.MediaFilter != "all" && len(data.Directories) > 0 {
@@ -220,10 +222,10 @@ func (b *Browser) BrowseFiltered(rawPath, query, sortKey, mediaFilter string) Pa
 	}
 
 	sort.SliceStable(data.Directories, func(i, j int) bool {
-		return lessEntry(data.Sort, data.Directories[i].Name, data.Directories[j].Name, data.Directories[i].modifiedAt, data.Directories[j].modifiedAt, data.Directories[i].sizeBytes, data.Directories[j].sizeBytes)
+		return lessEntry(data.Sort, data.Directories[i].Name, data.Directories[j].Name, data.Directories[i].ModifiedAt, data.Directories[j].ModifiedAt, data.Directories[i].SizeBytes, data.Directories[j].SizeBytes)
 	})
 	sort.SliceStable(data.Photos, func(i, j int) bool {
-		return lessEntry(data.Sort, data.Photos[i].Name, data.Photos[j].Name, data.Photos[i].modifiedAt, data.Photos[j].modifiedAt, data.Photos[i].sizeBytes, data.Photos[j].sizeBytes)
+		return lessEntry(data.Sort, data.Photos[i].Name, data.Photos[j].Name, data.Photos[i].ModifiedAt, data.Photos[j].ModifiedAt, data.Photos[i].SizeBytes, data.Photos[j].SizeBytes)
 	})
 	return data
 }

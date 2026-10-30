@@ -66,6 +66,7 @@ func TestRoutesBrowseAndServePictures(t *testing.T) {
 		{path: "/assets/app.js", status: http.StatusOK, want: "/thumbnail-focus", contentType: "text/javascript"},
 		{path: "/assets/app.js", status: http.StatusOK, want: "thumbnailFocusInterval", contentType: "text/javascript"},
 		{path: "/assets/app.js", status: http.StatusOK, want: "maxThumbnailRequests", contentType: "text/javascript"},
+		{path: "/assets/app.js", status: http.StatusOK, want: "thumbnailCached", contentType: "text/javascript"},
 		{path: "/gallery?path=Trips", status: http.StatusOK, want: "data-thumbnail-url", contentType: "text/html"},
 		{path: "/missing", status: http.StatusNotFound, want: "page not found", contentType: "text/plain"},
 	}
@@ -195,9 +196,43 @@ func TestThumbnailPumpRetriesWhenSrcAlreadySet(t *testing.T) {
 	if at := strings.Index(js, "const prepareThumbnails"); at >= 0 {
 		prepare = js[at:]
 	}
-	if !strings.Contains(prepare, "scheduleThumbnail(image)") {
-		t.Fatal("prepareThumbnails must queue failed thumbs again without relying on thumbnailRetry")
+	if !strings.Contains(prepare, "thumbnailCached") || !strings.Contains(prepare, "scheduleThumbnail(image)") {
+		t.Fatal("prepareThumbnails must only queue listing cache hits")
 	}
+}
+
+func TestGalleryMarksCachedThumbnails(t *testing.T) {
+	root := t.TempDir()
+	writeTestJPEG(t, filepath.Join(root, "ready.jpg"))
+	writeTestJPEG(t, filepath.Join(root, "pending.jpg"))
+	handler := routesWithRoot(root)
+	waitForThumbnail(t, handler, "/thumbnail?kind=image&path=ready.jpg")
+
+	recorder := getPath(t, handler, "/")
+	body := recorder.Body.String()
+	if strings.Count(body, `data-thumbnail-cached="true"`) != 1 {
+		t.Fatalf("expected one cached thumbnail mark, got %q", body)
+	}
+	if !strings.Contains(body, "data-thumbnail-url") {
+		t.Fatal("expected thumbnail urls on listing")
+	}
+}
+
+func TestGalleryEnqueueMissingThumbnails(t *testing.T) {
+	root := t.TempDir()
+	writeTestJPEG(t, filepath.Join(root, "photo.jpg"))
+	handler := routesWithRoot(root)
+	listing := getPath(t, handler, "/")
+	if listing.Code != http.StatusOK {
+		t.Fatalf("listing status %d", listing.Code)
+	}
+	if strings.Contains(listing.Body.String(), `data-thumbnail-cached="true"`) {
+		t.Fatal("uncached listing should not mark thumbnails cached")
+	}
+	leave := httptest.NewRequest(http.MethodPost, "/thumbnail-focus", strings.NewReader("tab=reload&leave=1"))
+	leave.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	handler.ServeHTTP(httptest.NewRecorder(), leave)
+	waitForThumbnail(t, handler, "/thumbnail?kind=image&path=photo.jpg")
 }
 
 func TestThumbnailFocusAcceptsTabView(t *testing.T) {

@@ -73,12 +73,11 @@ func (q *Queue) View(tab, folder string) {
 	q.mu.Unlock()
 }
 
-// Leave removes a tab early. Stale tabs are also forgotten here.
+// Leave removes a tab. It does not drop queued work; the next View or a
+// heartbeat expiry does that, so a reload can enqueue before the new View.
 func (q *Queue) Leave(tab string) {
 	q.mu.Lock()
-	q.expireViewersLocked()
 	delete(q.viewers, tab)
-	q.dropAbandonedLocked()
 	q.mu.Unlock()
 }
 

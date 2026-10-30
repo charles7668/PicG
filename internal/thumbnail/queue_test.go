@@ -198,8 +198,13 @@ func TestViewKeepsJobsForOtherTabs(t *testing.T) {
 	}
 
 	queue.Leave("tab-a")
+	if got := queue.pendingCount(); got != 3 {
+		t.Fatalf("Leave should keep queued work, pending %d", got)
+	}
+
+	queue.View("tab-b", "album-b")
 	if got := queue.pendingCount(); got != 2 {
-		t.Fatalf("left tab folder should drop, pending %d", got)
+		t.Fatalf("View should drop folders nobody is watching, pending %d", got)
 	}
 
 	release <- struct{}{}

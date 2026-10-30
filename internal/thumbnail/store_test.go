@@ -155,6 +155,69 @@ func TestCachedFileSkipsStaleStamp(t *testing.T) {
 	}
 }
 
+func TestPresentReportsCachedIdentities(t *testing.T) {
+	work := t.TempDir()
+	db, err := database.Open(filepath.Join(work, "app.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	thumbDir := filepath.Join(work, "thumbnails")
+	store, err := NewStore(db, thumbDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeSource := func(name string) (string, os.FileInfo) {
+		t.Helper()
+		path := filepath.Join(work, name)
+		if err := os.WriteFile(path, []byte(name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return path, info
+	}
+	sourceA, infoA := writeSource("a.jpg")
+	sourceB, infoB := writeSource("b.jpg")
+	if _, err := store.GetOrCreate(context.Background(), Request{Kind: "image", Identity: "album/a.jpg", SourcePath: sourceA, Info: infoA}, writeThumbnail("a")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.GetOrCreate(context.Background(), Request{Kind: "image", Identity: "album/b.jpg", SourcePath: sourceB, Info: infoB}, writeThumbnail("b")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.GetOrCreate(context.Background(), Request{Kind: "cover", Identity: "album", SourcePath: sourceA, Info: infoA}, writeThumbnail("cover")); err != nil {
+		t.Fatal(err)
+	}
+
+	fresh, err := NewStore(db, thumbDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	present, err := fresh.Present(context.Background(), []Presence{
+		{Kind: "image", Identity: "album/a.jpg", MTimeNS: infoA.ModTime().UnixNano(), Size: infoA.Size(), MatchStamp: true},
+		{Kind: "image", Identity: "album/b.jpg", MTimeNS: infoB.ModTime().UnixNano() + 1, Size: infoB.Size(), MatchStamp: true},
+		{Kind: "image", Identity: "album/missing.jpg", MTimeNS: 1, Size: 1, MatchStamp: true},
+		{Kind: "cover", Identity: "album", MatchStamp: false},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !present[PresenceID("image", "album/a.jpg")] {
+		t.Fatal("expected cached image to be present")
+	}
+	if present[PresenceID("image", "album/b.jpg")] {
+		t.Fatal("stale stamp should not be present")
+	}
+	if present[PresenceID("image", "album/missing.jpg")] {
+		t.Fatal("missing image should not be present")
+	}
+	if !present[PresenceID("cover", "album")] {
+		t.Fatal("expected cover to be present without a stamp")
+	}
+}
+
 func TestCacheReadsDoNotRequireDatabase(t *testing.T) {
 	work := t.TempDir()
 	db, err := database.Open(filepath.Join(work, "app.sqlite"))

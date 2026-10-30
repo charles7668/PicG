@@ -87,8 +87,76 @@ func routesWithStorage(root, databasePath, thumbnailDir string, cleanupWhenIdle 
 		panic(err)
 	}
 	mux.Handle("GET /assets/", http.StripPrefix("/", http.FileServer(http.FS(assets))))
+	enqueueThumbnail := func(kind, identity, rawPath string) {
+		if err := thumbnailQueue.Enqueue(kind, identity, func() error {
+			var input string
+			var info os.FileInfo
+			var resolveErr error
+			resolvedIdentity := identity
+			if kind == "cover" {
+				resolvedIdentity, input, info, resolveErr = browser.ResolveCover(rawPath)
+			} else {
+				resolvedIdentity, input, info, resolveErr = browser.ResolveMedia(rawPath)
+			}
+			if resolveErr != nil {
+				return resolveErr
+			}
+			_, err := thumbnailStore.GetOrCreate(context.Background(), thumbnail.Request{
+				Kind: kind, Identity: resolvedIdentity, SourcePath: input, Info: info,
+			}, func(output string) error {
+				const maxGoImageBytes = 6 << 20
+				videoSource := kind == "video" || isVideoFilename(input)
+				if !videoSource && info.Size() <= maxGoImageBytes {
+					if imageErr := thumbnail.RenderImage(input, output); imageErr == nil {
+						return nil
+					}
+				}
+				return ffmpeg.RenderThumbnail(context.Background(), input, output, videoSource)
+			})
+			status := "ready"
+			if err != nil {
+				log.Printf("thumbnail %q: %v", input, err)
+				status = "error"
+			}
+			thumbnailEvents.Publish(kind, identity, status)
+			return err
+		}); err != nil {
+			log.Printf("thumbnail enqueue %s %q: %v", kind, identity, err)
+		}
+	}
+	primeListingThumbnails := func(ctx context.Context, data gallery.PageData) gallery.PageData {
+		items := make([]thumbnail.Presence, 0, len(data.Directories)+len(data.Photos))
+		for _, directory := range data.Directories {
+			items = append(items, thumbnail.Presence{Kind: "cover", Identity: directory.Path})
+		}
+		for _, photo := range data.Photos {
+			items = append(items, thumbnail.Presence{
+				Kind: photo.Kind, Identity: photo.Path, MTimeNS: photo.ModifiedAt.UnixNano(), Size: photo.SizeBytes, MatchStamp: true,
+			})
+		}
+		present, err := thumbnailStore.Present(ctx, items)
+		if err != nil {
+			log.Printf("thumbnail presence: %v", err)
+			present = map[string]bool{}
+		}
+		for i, directory := range data.Directories {
+			if present[thumbnail.PresenceID("cover", directory.Path)] {
+				data.Directories[i].CoverCached = true
+				continue
+			}
+			enqueueThumbnail("cover", directory.Path, directory.Path)
+		}
+		for i, photo := range data.Photos {
+			if present[thumbnail.PresenceID(photo.Kind, photo.Path)] {
+				data.Photos[i].ThumbnailCached = true
+				continue
+			}
+			enqueueThumbnail(photo.Kind, photo.Path, photo.Path)
+		}
+		return data
+	}
 	browse := func(r *http.Request) gallery.PageData {
-		return browser.BrowseFiltered(r.URL.Query().Get("path"), r.URL.Query().Get("q"), requestSort(r), r.URL.Query().Get("media"))
+		return primeListingThumbnails(r.Context(), browser.BrowseFiltered(r.URL.Query().Get("path"), r.URL.Query().Get("q"), requestSort(r), r.URL.Query().Get("media")))
 	}
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
@@ -180,42 +248,7 @@ func routesWithStorage(root, databasePath, thumbnailDir string, cleanupWhenIdle 
 			serveThumbnailFile(w, r, cached)
 			return
 		}
-		rawPath := r.URL.Query().Get("path")
-		if err := thumbnailQueue.Enqueue(kind, identity, func() error {
-			var input string
-			var info os.FileInfo
-			var resolveErr error
-			resolvedIdentity := identity
-			if kind == "cover" {
-				resolvedIdentity, input, info, resolveErr = browser.ResolveCover(rawPath)
-			} else {
-				resolvedIdentity, input, info, resolveErr = browser.ResolveMedia(rawPath)
-			}
-			if resolveErr != nil {
-				return resolveErr
-			}
-			_, err := thumbnailStore.GetOrCreate(context.Background(), thumbnail.Request{
-				Kind: kind, Identity: resolvedIdentity, SourcePath: input, Info: info,
-			}, func(output string) error {
-				const maxGoImageBytes = 6 << 20
-				videoSource := kind == "video" || isVideoFilename(input)
-				if !videoSource && info.Size() <= maxGoImageBytes {
-					if imageErr := thumbnail.RenderImage(input, output); imageErr == nil {
-						return nil
-					}
-				}
-				return ffmpeg.RenderThumbnail(context.Background(), input, output, videoSource)
-			})
-			status := "ready"
-			if err != nil {
-				log.Printf("thumbnail %q: %v", input, err)
-				status = "error"
-			}
-			thumbnailEvents.Publish(kind, identity, status)
-			return err
-		}); err != nil {
-			log.Printf("thumbnail enqueue %s %q: %v", kind, identity, err)
-		}
+		enqueueThumbnail(kind, identity, r.URL.Query().Get("path"))
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Retry-After", "1")
 		http.Error(w, "thumbnail generating", http.StatusServiceUnavailable)
