@@ -65,6 +65,8 @@ func TestRoutesBrowseAndServePictures(t *testing.T) {
 		{path: "/assets/app.js", status: http.StatusOK, want: "navigator.locks", contentType: "text/javascript"},
 		{path: "/assets/app.js", status: http.StatusOK, want: "/thumbnail-focus", contentType: "text/javascript"},
 		{path: "/assets/app.js", status: http.StatusOK, want: "thumbnailFocusInterval", contentType: "text/javascript"},
+		{path: "/assets/app.js", status: http.StatusOK, want: "maxThumbnailRequests", contentType: "text/javascript"},
+		{path: "/gallery?path=Trips", status: http.StatusOK, want: "data-thumbnail-url", contentType: "text/html"},
 		{path: "/missing", status: http.StatusNotFound, want: "page not found", contentType: "text/plain"},
 	}
 
@@ -172,6 +174,30 @@ func TestThumbnailEventsNotifyWhenReady(t *testing.T) {
 		}
 	}
 	t.Fatal("did not receive ready thumbnail event")
+}
+
+func TestThumbnailPumpRetriesWhenSrcAlreadySet(t *testing.T) {
+	handler := routesWithRoot(t.TempDir())
+	recorder := getPath(t, handler, "/assets/app.js")
+	js := recorder.Body.String()
+	start := strings.Index(js, "const pumpThumbnails = () => {")
+	if start < 0 {
+		t.Fatal("pumpThumbnails not found")
+	}
+	pump := js[start:]
+	if end := strings.Index(pump, "\n  const releaseThumbnail"); end > 0 {
+		pump = pump[:end]
+	}
+	if !strings.Contains(pump, `image.getAttribute("src")`) || !strings.Contains(pump, `"&retry="`) {
+		t.Fatal("pumpThumbnails must change src with retry when the image already has one")
+	}
+	prepare := js
+	if at := strings.Index(js, "const prepareThumbnails"); at >= 0 {
+		prepare = js[at:]
+	}
+	if !strings.Contains(prepare, "scheduleThumbnail(image)") {
+		t.Fatal("prepareThumbnails must queue failed thumbs again without relying on thumbnailRetry")
+	}
 }
 
 func TestThumbnailFocusAcceptsTabView(t *testing.T) {

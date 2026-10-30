@@ -8,7 +8,11 @@
   const maxThumbnailTries = 60;
   const thumbnailRetryDelay = 1000;
   const thumbnailFocusInterval = 15000;
+  const maxThumbnailRequests = 4;
   const recentThumbnailEvents = [];
+  const thumbnailWaiting = [];
+  const thumbnailWaitingSet = new Set();
+  let thumbnailInFlight = 0;
 
   const thumbnailSrc = (image) => image.dataset.thumbnailUrl || image.getAttribute("src") || "";
 
@@ -28,11 +32,55 @@
     }
   };
 
-  const reloadThumbnail = (image) => {
-    const base = thumbnailSrc(image).replace(/&retry=\d+$/, "");
-    if (!base || image.dataset.thumbnailAborted === "true") return;
-    rememberThumbnailUrl(image, base);
-    image.src = base + "&retry=" + Date.now();
+  const scheduleThumbnail = (image, options = {}) => {
+    if (!image || image.dataset.thumbnailAborted === "true") return;
+    if (image.complete && image.naturalWidth > 0) return;
+    const url = thumbnailSrc(image);
+    if (!url) return;
+    rememberThumbnailUrl(image, url);
+    if (options.retry) image.dataset.thumbnailRetry = "true";
+    if (image.dataset.thumbnailInFlight === "true") {
+      if (options.retry) image.dataset.thumbnailReady = "true";
+      return;
+    }
+    if (thumbnailWaitingSet.has(image)) {
+      if (options.prepend) {
+        const index = thumbnailWaiting.indexOf(image);
+        if (index > 0) {
+          thumbnailWaiting.splice(index, 1);
+          thumbnailWaiting.unshift(image);
+        }
+      }
+      return;
+    }
+    if (options.prepend) thumbnailWaiting.unshift(image);
+    else thumbnailWaiting.push(image);
+    thumbnailWaitingSet.add(image);
+    pumpThumbnails();
+  };
+
+  const pumpThumbnails = () => {
+    while (thumbnailInFlight < maxThumbnailRequests && thumbnailWaiting.length) {
+      const image = thumbnailWaiting.shift();
+      thumbnailWaitingSet.delete(image);
+      if (!image?.isConnected || image.dataset.thumbnailAborted === "true") continue;
+      if (image.complete && image.naturalWidth > 0) continue;
+      const base = thumbnailSrc(image).replace(/&retry=\d+$/, "");
+      if (!base) continue;
+      image.dataset.thumbnailInFlight = "true";
+      thumbnailInFlight += 1;
+      image.dataset.thumbnailRetry = "";
+      let url = base;
+      if (image.getAttribute("src")) url = base + "&retry=" + Date.now();
+      image.src = url;
+    }
+  };
+
+  const releaseThumbnail = (image) => {
+    if (image?.dataset?.thumbnailInFlight !== "true") return;
+    image.dataset.thumbnailInFlight = "";
+    thumbnailInFlight = Math.max(0, thumbnailInFlight - 1);
+    pumpThumbnails();
   };
 
   const applyThumbnailEvent = (data) => {
@@ -46,7 +94,7 @@
         return;
       }
       if (image.complete && image.naturalWidth > 0) return;
-      reloadThumbnail(image);
+      scheduleThumbnail(image, { retry: true, prepend: true });
     });
   };
 
@@ -67,8 +115,7 @@
     document.querySelectorAll("img[data-thumbnail]").forEach((image) => {
       if (image.dataset.thumbnailAborted === "true") return;
       if (image.complete && image.naturalWidth > 0) return;
-      rememberThumbnailUrl(image, thumbnailSrc(image));
-      reloadThumbnail(image);
+      scheduleThumbnail(image, { retry: true, prepend: true });
     });
   };
 
@@ -154,6 +201,7 @@
   const prepareThumbnails = (scope = document) => {
     scope.querySelectorAll?.("img[data-thumbnail]").forEach((image) => {
       if (image.complete && image.naturalWidth > 0) image.classList.add("is-loaded");
+      else scheduleThumbnail(image);
     });
     recentThumbnailEvents.forEach(applyThumbnailEvent);
   };
@@ -193,9 +241,14 @@
 
   const cancelThumbnailWork = () => {
     thumbnailEpoch += 1;
+    thumbnailWaiting.length = 0;
+    thumbnailWaitingSet.clear();
+    thumbnailInFlight = 0;
     document.querySelectorAll("img[data-thumbnail]").forEach((image) => {
       if (image.complete && image.naturalWidth > 0) return;
       image.dataset.thumbnailAborted = "true";
+      image.dataset.thumbnailInFlight = "";
+      image.dataset.thumbnailReady = "";
       image.removeAttribute("src");
     });
   };
@@ -617,6 +670,13 @@
     const url = image.getAttribute("src");
     if (!url) return;
     rememberThumbnailUrl(image, url);
+    const ready = image.dataset.thumbnailReady === "true";
+    image.dataset.thumbnailReady = "";
+    releaseThumbnail(image);
+    if (ready) {
+      scheduleThumbnail(image, { retry: true, prepend: true });
+      return;
+    }
     if (window.EventSource) return;
     const tries = Number(image.dataset.thumbnailTries || "0");
     if (tries >= maxThumbnailTries) {
@@ -627,12 +687,16 @@
     const epoch = thumbnailEpoch;
     window.setTimeout(() => {
       if (epoch !== thumbnailEpoch || !image.isConnected || image.dataset.thumbnailAborted === "true") return;
-      reloadThumbnail(image);
+      scheduleThumbnail(image, { retry: true });
     }, thumbnailRetryDelay);
   }, true);
 
   document.addEventListener("load", (event) => {
-    if (event.target.matches?.("img[data-thumbnail]")) event.target.classList.add("is-loaded");
+    const image = event.target;
+    if (!image?.matches?.("img[data-thumbnail]")) return;
+    image.dataset.thumbnailReady = "";
+    image.classList.add("is-loaded");
+    releaseThumbnail(image);
   }, true);
 
   document.addEventListener("volumechange", (event) => {

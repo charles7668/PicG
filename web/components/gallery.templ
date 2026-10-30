@@ -159,7 +159,7 @@ templ ThumbnailGrid(data gallery.PageData) {
 					for _, directory := range data.Directories {
 						<a class="folder-card" href={ templ.URL(galleryFilterHref(directory.Href, data.MediaFilter)) } title={ directory.Name } hx-get={ galleryFilterHref(galleryFragmentURL(directory.Href), data.MediaFilter) } hx-target="#gallery-content" hx-push-url={ galleryFilterHref(directory.Href, data.MediaFilter) }>
 							<div class="folder-cover">
-								<span class="folder-placeholder">▰</span><img src={ directory.CoverURL } alt="" decoding="async" data-folder-cover data-thumbnail/><span class="folder-tab"></span>
+								<span class="folder-placeholder">▰</span><img alt="" decoding="async" data-folder-cover data-thumbnail data-thumbnail-url={ directory.CoverURL }/><span class="folder-tab"></span>
 							</div>
 							<div class="folder-info"><strong>{ directory.Name }</strong><span>{ directorySummary(directory) }</span></div>
 						</a>
@@ -178,7 +178,7 @@ templ ThumbnailGrid(data gallery.PageData) {
 								<strong>{ photo.Name }</strong>
 								<small>{ photo.Modified } · { photo.Size }</small>
 							</span>
-							<img src={ photo.ThumbnailURL } alt={ photo.Name } decoding="async" data-media-thumbnail={ photo.Kind } data-thumbnail/>
+							<img alt={ photo.Name } decoding="async" data-media-thumbnail={ photo.Kind } data-thumbnail data-thumbnail-url={ photo.ThumbnailURL }/>
 							if photo.Kind == "video" {
 								<span class="video-badge">▶</span>
 							}
