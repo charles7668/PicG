@@ -12,13 +12,12 @@ import (
 	xdraw "golang.org/x/image/draw"
 )
 
-const maxThumbnailDimension = 640
-
 var thumbnailBackground = color.RGBA{R: 30, G: 34, B: 40, A: 255}
 
 // RenderImage handles formats supported by Go's standard image decoders.
-// Callers can fall back to FFmpeg for formats such as AVIF and WebP.
-func RenderImage(input, output string) error {
+// maxDimension is the long-edge cap in pixels. Callers can fall back to FFmpeg
+// for formats such as AVIF and WebP.
+func RenderImage(input, output string, maxDimension, quality int) error {
 	file, err := os.Open(input)
 	if err != nil {
 		return err
@@ -30,10 +29,10 @@ func RenderImage(input, output string) error {
 	}
 	bounds := source.Bounds()
 	width, height := bounds.Dx(), bounds.Dy()
-	if width > maxThumbnailDimension || height > maxThumbnailDimension {
-		scale := float64(maxThumbnailDimension) / float64(width)
+	if width > maxDimension || height > maxDimension {
+		scale := float64(maxDimension) / float64(width)
 		if height > width {
-			scale = float64(maxThumbnailDimension) / float64(height)
+			scale = float64(maxDimension) / float64(height)
 		}
 		width = max(1, int(float64(width)*scale))
 		height = max(1, int(float64(height)*scale))
@@ -45,7 +44,7 @@ func RenderImage(input, output string) error {
 	if err != nil {
 		return err
 	}
-	if err := jpeg.Encode(out, destination, &jpeg.Options{Quality: 78}); err != nil {
+	if err := jpeg.Encode(out, destination, &jpeg.Options{Quality: quality}); err != nil {
 		out.Close()
 		return err
 	}

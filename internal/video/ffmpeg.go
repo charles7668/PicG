@@ -44,13 +44,14 @@ func (f *FFmpeg) Status(ctx context.Context) Status {
 	return Status{Available: true, Path: resolved, Version: firstLine}
 }
 
-// RenderThumbnail renders one JPEG frame. Cache identity and persistence are
-// managed separately by the thumbnail store.
-func (f *FFmpeg) RenderThumbnail(ctx context.Context, input, output string, isVideo bool) error {
+// RenderThumbnail renders one JPEG frame. maxDimension is the long-edge cap;
+// qv is FFmpeg -q:v. Cache identity and persistence are managed separately.
+func (f *FFmpeg) RenderThumbnail(ctx context.Context, input, output string, isVideo bool, maxDimension, qv int) error {
 	runCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	baseArgs := []string{"-hide_banner", "-loglevel", "error", "-nostdin", "-threads", "1", "-an"}
-	outputArgs := []string{"-frames:v", "1", "-vf", "scale=640:-2:force_original_aspect_ratio=decrease", "-q:v", "5", "-y", output}
+	filter := fmt.Sprintf("scale=%d:-2:force_original_aspect_ratio=decrease", maxDimension)
+	outputArgs := []string{"-frames:v", "1", "-vf", filter, "-q:v", strconv.Itoa(qv), "-y", output}
 	attempts := [][]string{append(append(append([]string{}, baseArgs...), "-i", input), outputArgs...)}
 	if isVideo {
 		attempts = append([][]string{append(append(append([]string{}, baseArgs...), "-ss", "1", "-i", input), outputArgs...)}, attempts...)
