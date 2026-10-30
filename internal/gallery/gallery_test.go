@@ -75,6 +75,48 @@ func TestFindCoverPrefersImageOverVideo(t *testing.T) {
 	}
 }
 
+func TestFindCoverPrefersNestedImageOverDirectVideo(t *testing.T) {
+	root := t.TempDir()
+	mustMkdir(t, filepath.Join(root, "album", "day1"))
+	mustWrite(t, filepath.Join(root, "album", "clip.mp4"))
+	mustWrite(t, filepath.Join(root, "album", "day1", "photo.jpg"))
+	cover, err := NewBrowser(root).findCover("album")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cover != "album/day1/photo.jpg" {
+		t.Fatalf("expected nested image over direct video, got %q", cover)
+	}
+}
+
+func TestFindCoverPrefersDirectVideoOverNestedVideo(t *testing.T) {
+	root := t.TempDir()
+	mustMkdir(t, filepath.Join(root, "album", "day1"))
+	mustWrite(t, filepath.Join(root, "album", "clip.mp4"))
+	mustWrite(t, filepath.Join(root, "album", "day1", "shot.mp4"))
+	cover, err := NewBrowser(root).findCover("album")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cover != "album/clip.mp4" {
+		t.Fatalf("expected direct video over nested video, got %q", cover)
+	}
+}
+
+func TestFindCoverPrefersDirectImageOverNestedImage(t *testing.T) {
+	root := t.TempDir()
+	mustMkdir(t, filepath.Join(root, "album", "nested"))
+	mustWrite(t, filepath.Join(root, "album", "nested", "a.jpg"))
+	mustWrite(t, filepath.Join(root, "album", "z.jpg"))
+	cover, err := NewBrowser(root).findCover("album")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cover != "album/z.jpg" {
+		t.Fatalf("expected direct image over nested image, got %q", cover)
+	}
+}
+
 func TestBrowseSortsPhotosByDateAndSize(t *testing.T) {
 	root := t.TempDir()
 	older := filepath.Join(root, "alpha.jpg")

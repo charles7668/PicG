@@ -501,46 +501,84 @@ func (b *Browser) findCover(directory string) (string, error) {
 		return "", ErrInvalidPath
 	}
 	absolute := filepath.Join(b.root, filepath.FromSlash(rel))
-	var imageCover, videoCover string
-	visited := 0
-	_ = filepath.WalkDir(absolute, func(filePath string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return nil
-		}
-		if visited >= 500 {
-			return fs.SkipAll
-		}
-		visited++
-		if entry.Type()&os.ModeSymlink != 0 || strings.HasPrefix(entry.Name(), ".") {
-			if entry.IsDir() {
-				return fs.SkipDir
-			}
-			return nil
+	entries, err := os.ReadDir(absolute)
+	if err != nil {
+		return "", err
+	}
+	var directVideo string
+	var subdirs []string
+	for _, entry := range entries {
+		if skipCoverEntry(entry) {
+			continue
 		}
 		if entry.IsDir() {
-			return nil
+			subdirs = append(subdirs, entry.Name())
+			continue
 		}
-		rel, err := filepath.Rel(b.root, filePath)
-		if err != nil {
-			return nil
-		}
-		slash := filepath.ToSlash(rel)
 		if isImage(entry.Name()) {
-			imageCover = slash
-			return fs.SkipAll
+			return joinRelative(rel, entry.Name()), nil
 		}
-		if videoCover == "" && isVideo(entry.Name()) {
-			videoCover = slash
+		if directVideo == "" && isVideo(entry.Name()) {
+			directVideo = joinRelative(rel, entry.Name())
 		}
-		return nil
-	})
-	if imageCover != "" {
-		return imageCover, nil
 	}
-	if videoCover != "" {
-		return videoCover, nil
+	nestedImage, nestedVideo := b.walkCoverSubdirs(absolute, subdirs)
+	if nestedImage != "" {
+		return nestedImage, nil
+	}
+	if directVideo != "" {
+		return directVideo, nil
+	}
+	if nestedVideo != "" {
+		return nestedVideo, nil
 	}
 	return "", fs.ErrNotExist
+}
+
+func (b *Browser) walkCoverSubdirs(parent string, names []string) (string, string) {
+	var imageCover, videoCover string
+	visited := 0
+	for _, name := range names {
+		if imageCover != "" {
+			break
+		}
+		_ = filepath.WalkDir(filepath.Join(parent, name), func(filePath string, entry fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return nil
+			}
+			if visited >= 500 {
+				return fs.SkipAll
+			}
+			visited++
+			if skipCoverEntry(entry) {
+				if entry.IsDir() {
+					return fs.SkipDir
+				}
+				return nil
+			}
+			if entry.IsDir() {
+				return nil
+			}
+			rel, err := filepath.Rel(b.root, filePath)
+			if err != nil {
+				return nil
+			}
+			slash := filepath.ToSlash(rel)
+			if isImage(entry.Name()) {
+				imageCover = slash
+				return fs.SkipAll
+			}
+			if videoCover == "" && isVideo(entry.Name()) {
+				videoCover = slash
+			}
+			return nil
+		})
+	}
+	return imageCover, videoCover
+}
+
+func skipCoverEntry(entry fs.DirEntry) bool {
+	return entry.Type()&os.ModeSymlink != 0 || strings.HasPrefix(entry.Name(), ".")
 }
 
 func cleanRelativePath(raw string) (string, error) {
