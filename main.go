@@ -129,15 +129,17 @@ func routesWithStorage(root, databasePath, thumbnailDir string, cleanupWhenIdle 
 			log.Printf("thumbnail enqueue %s %q: %v", kind, identity, err)
 		}
 	}
-	primeListingThumbnails := func(ctx context.Context, data gallery.PageData) gallery.PageData {
+	primeListingThumbnails := func(ctx context.Context, data gallery.PageData, includePhotos bool) gallery.PageData {
 		items := make([]thumbnail.Presence, 0, len(data.Directories)+len(data.Photos))
 		for _, directory := range data.Directories {
 			items = append(items, thumbnail.Presence{Kind: "cover", Identity: directory.Path})
 		}
-		for _, photo := range data.Photos {
-			items = append(items, thumbnail.Presence{
-				Kind: photo.Kind, Identity: photo.Path, MTimeNS: photo.ModifiedAt.UnixNano(), Size: photo.SizeBytes, MatchStamp: true,
-			})
+		if includePhotos {
+			for _, photo := range data.Photos {
+				items = append(items, thumbnail.Presence{
+					Kind: photo.Kind, Identity: photo.Path, MTimeNS: photo.ModifiedAt.UnixNano(), Size: photo.SizeBytes, MatchStamp: true,
+				})
+			}
 		}
 		present, err := thumbnailStore.Present(ctx, items)
 		if err != nil {
@@ -151,17 +153,19 @@ func routesWithStorage(root, databasePath, thumbnailDir string, cleanupWhenIdle 
 			}
 			enqueueThumbnail("cover", directory.Path, directory.Path)
 		}
-		for i, photo := range data.Photos {
-			if present[thumbnail.PresenceID(photo.Kind, photo.Path)] {
-				data.Photos[i].ThumbnailCached = true
-				continue
+		if includePhotos {
+			for i, photo := range data.Photos {
+				if present[thumbnail.PresenceID(photo.Kind, photo.Path)] {
+					data.Photos[i].ThumbnailCached = true
+					continue
+				}
+				enqueueThumbnail(photo.Kind, photo.Path, photo.Path)
 			}
-			enqueueThumbnail(photo.Kind, photo.Path, photo.Path)
 		}
 		return data
 	}
 	browse := func(r *http.Request) gallery.PageData {
-		return primeListingThumbnails(r.Context(), browser.BrowseFiltered(r.URL.Query().Get("path"), r.URL.Query().Get("q"), requestSort(r), r.URL.Query().Get("media")))
+		return primeListingThumbnails(r.Context(), browser.BrowseFiltered(r.URL.Query().Get("path"), r.URL.Query().Get("q"), requestSort(r), r.URL.Query().Get("media")), true)
 	}
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
@@ -175,6 +179,11 @@ func routesWithStorage(root, databasePath, thumbnailDir string, cleanupWhenIdle 
 	})
 	mux.HandleFunc("GET /gallery/thumbnails", func(w http.ResponseWriter, r *http.Request) {
 		render(w, r, components.ThumbnailGrid(browse(r)))
+	})
+	mux.HandleFunc("GET /gallery/filter", func(w http.ResponseWriter, r *http.Request) {
+		data := primeListingThumbnails(r.Context(), browser.BrowseFiltered(r.URL.Query().Get("path"), r.URL.Query().Get("q"), requestSort(r), r.URL.Query().Get("media")), false)
+		w.Header().Set("Cache-Control", "no-store")
+		render(w, r, components.FolderArea(data))
 	})
 	mux.HandleFunc("GET /media/{path...}", func(w http.ResponseWriter, r *http.Request) {
 		file, info, err := browser.Open(r.PathValue("path"))

@@ -68,6 +68,9 @@ func TestRoutesBrowseAndServePictures(t *testing.T) {
 		{path: "/assets/app.js", status: http.StatusOK, want: "maxThumbnailRequests", contentType: "text/javascript"},
 		{path: "/assets/app.js", status: http.StatusOK, want: "thumbnailCached", contentType: "text/javascript"},
 		{path: "/assets/app.js", status: http.StatusOK, want: "X-Video-Direct", contentType: "text/javascript"},
+		{path: "/assets/app.js", status: http.StatusOK, want: "startFilterPoll", contentType: "text/javascript"},
+		{path: "/assets/app.js", status: http.StatusOK, want: "applyFilterFragment", contentType: "text/javascript"},
+		{path: "/assets/app.js", status: http.StatusOK, wantAbsent: "renderFolderCard", contentType: "text/javascript"},
 		{path: "/gallery?path=Trips", status: http.StatusOK, want: "data-thumbnail-url", contentType: "text/html"},
 		{path: "/missing", status: http.StatusNotFound, want: "page not found", contentType: "text/plain"},
 	}
@@ -386,6 +389,64 @@ func TestVideoRouteServesDirectMP4(t *testing.T) {
 	}
 	if strings.Contains(body, "moof") {
 		t.Fatal("direct mp4 should not be transcoded to fragmented mp4")
+	}
+}
+
+func TestGalleryFilterPollsFolderFragment(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "旅行", "日本"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestJPEG(t, filepath.Join(root, "旅行", "日本", "京都.jpg"))
+	writeTestJPEG(t, filepath.Join(root, "root.jpg"))
+	handler := routesWithRoot(root)
+
+	page := getPath(t, handler, "/gallery?media=image")
+	if page.Code != http.StatusOK {
+		t.Fatalf("expected gallery 200, got %d", page.Code)
+	}
+	body := page.Body.String()
+	if !strings.Contains(body, "data-filter-pending") || !strings.Contains(body, "data-filter-url") {
+		t.Fatal("pending filter should expose a fragment poll URL")
+	}
+	if !strings.Contains(body, "/gallery/filter?") {
+		t.Fatal("pending filter should poll /gallery/filter")
+	}
+	if strings.Contains(body, `hx-trigger="load delay:300ms"`) {
+		t.Fatal("pending filter should not reload #gallery-content")
+	}
+	if !strings.Contains(body, `id="folder-area"`) {
+		t.Fatal("pending filter should keep a folder mount point")
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	var raw string
+	for time.Now().Before(deadline) {
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/gallery/filter?media=image", nil))
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("expected filter 200, got %d: %s", recorder.Code, recorder.Body.String())
+		}
+		if contentType := recorder.Header().Get("Content-Type"); !strings.Contains(contentType, "text/html") {
+			t.Fatalf("expected HTML fragment, got %q", contentType)
+		}
+		raw = recorder.Body.String()
+		if strings.Contains(raw, "photo-card") || strings.Contains(raw, "data-photo-grid") || strings.Contains(raw, "id=\"gallery-content\"") {
+			t.Fatal("filter fragment should not include photos or the gallery shell")
+		}
+		if !strings.Contains(raw, `id="folder-area"`) || !strings.Contains(raw, `data-photo-count="1"`) {
+			t.Fatalf("expected folder-area with photo count, got %s", raw)
+		}
+		if !strings.Contains(raw, "data-filter-pending") {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if strings.Contains(raw, "data-filter-pending") {
+		t.Fatal("filter fragment stayed pending")
+	}
+	if !strings.Contains(raw, "旅行") || !strings.Contains(raw, "data-folder-path") {
+		t.Fatalf("expected matching folder card, got %s", raw)
 	}
 }
 

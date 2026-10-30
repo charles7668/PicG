@@ -73,7 +73,7 @@ templ GalleryContent(data gallery.PageData) {
 		<section class="gallery-toolbar">
 			<div>
 				<h1>{ data.CurrentName }</h1>
-				<p>{ fmt.Sprintf("%d 個資料夾 · %d 個媒體", len(data.Directories), len(data.Photos)) }</p>
+				<p data-gallery-counts>{ fmt.Sprintf("%d 個資料夾 · %d 個媒體", len(data.Directories), len(data.Photos)) }</p>
 			</div>
 			<div class="toolbar-actions">
 				<label class="filter-box">
@@ -124,14 +124,12 @@ templ GalleryContent(data gallery.PageData) {
 				}
 			</section>
 		} else if data.FilterPending {
-			<section class="state-panel filter-loading" data-filter-pending hx-get={ galleryRefreshURL(data) } hx-trigger="load delay:300ms" hx-target="#gallery-content">
+			<section class="state-panel filter-loading" data-filter-pending data-filter-url={ galleryFilterStatusURL(data) }>
 				<span class="loader-dot"></span>
 				<h2>正在篩選資料夾</h2>
 				<p>符合的資料夾會先顯示；會先檢查直接檔案，再往子資料夾尋找。</p>
 			</section>
-			if len(data.Directories) > 0 || len(data.Photos) > 0 {
-				@ThumbnailGrid(data)
-			}
+			@ThumbnailGrid(data)
 		} else if len(data.Directories) == 0 && len(data.Photos) == 0 {
 			<section class="state-panel">
 				if data.Query != "" || data.MediaFilter != "all" {
@@ -150,14 +148,14 @@ templ GalleryContent(data gallery.PageData) {
 	</div>
 }
 
-templ ThumbnailGrid(data gallery.PageData) {
-	<div id="thumbnail-area" class="thumbnail-content">
+templ FolderArea(data gallery.PageData) {
+	<div id="folder-area" data-photo-count={ fmt.Sprint(len(data.Photos)) } if data.FilterPending { data-filter-pending }>
 		if len(data.Directories) > 0 {
 			<section class="section-block">
 				<div class="section-heading"><h2>資料夾預覽</h2><span>{ fmt.Sprint(len(data.Directories)) }</span></div>
 				<div class="folder-grid">
 					for _, directory := range data.Directories {
-						<a class="folder-card" href={ templ.URL(galleryFilterHref(directory.Href, data.MediaFilter)) } title={ directory.Name } hx-get={ galleryFilterHref(galleryFragmentURL(directory.Href), data.MediaFilter) } hx-target="#gallery-content" hx-push-url={ galleryFilterHref(directory.Href, data.MediaFilter) }>
+						<a class="folder-card" href={ templ.URL(galleryFilterHref(directory.Href, data.MediaFilter)) } title={ directory.Name } data-folder-path={ directory.Path } hx-get={ galleryFilterHref(galleryFragmentURL(directory.Href), data.MediaFilter) } hx-target="#gallery-content" hx-push-url={ galleryFilterHref(directory.Href, data.MediaFilter) }>
 							<div class="folder-cover">
 								<span class="folder-placeholder">▰</span><img alt="" decoding="async" data-folder-cover data-thumbnail data-thumbnail-url={ directory.CoverURL } if directory.CoverCached { data-thumbnail-cached="true" }/><span class="folder-tab"></span>
 							</div>
@@ -167,6 +165,12 @@ templ ThumbnailGrid(data gallery.PageData) {
 				</div>
 			</section>
 		}
+	</div>
+}
+
+templ ThumbnailGrid(data gallery.PageData) {
+	<div id="thumbnail-area" class="thumbnail-content">
+		@FolderArea(data)
 		if len(data.Photos) > 0 {
 			<section class="section-block photo-section">
 				<div class="section-heading"><h2>媒體預覽</h2><span>{ fmt.Sprint(len(data.Photos)) }</span></div>
@@ -209,13 +213,13 @@ func galleryFilterHref(href, mediaFilter string) string {
 	return href + separator + "media=" + mediaFilter
 }
 
-func galleryRefreshURL(data gallery.PageData) string {
+func galleryFilterStatusURL(data gallery.PageData) string {
 	values := url.Values{}
 	values.Set("path", data.CurrentPath)
 	values.Set("q", data.Query)
 	values.Set("sort", data.Sort)
 	values.Set("media", data.MediaFilter)
-	return "/gallery?" + values.Encode()
+	return "/gallery/filter?" + values.Encode()
 }
 
 func directorySummary(directory gallery.Directory) string {

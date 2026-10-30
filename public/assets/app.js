@@ -206,6 +206,84 @@
     recentThumbnailEvents.forEach(applyThumbnailEvent);
   };
 
+  let filterPoll = null;
+  const filterBanner = () => document.querySelector("[data-filter-pending][data-filter-url]");
+
+  const waitForFilter = (ms, signal) => new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(signal.reason || new DOMException("aborted", "AbortError"));
+      return;
+    }
+    const abort = () => {
+      clearTimeout(timer);
+      reject(signal.reason || new DOMException("aborted", "AbortError"));
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", abort);
+      resolve();
+    }, ms);
+    signal.addEventListener("abort", abort, { once: true });
+  });
+
+  const applyFilterFragment = (html) => {
+    const incoming = new DOMParser().parseFromString(html, "text/html").querySelector("#folder-area");
+    if (!incoming) return true;
+    const pending = incoming.hasAttribute("data-filter-pending");
+    const photoCount = Number(incoming.dataset.photoCount || 0);
+    const folderCount = incoming.querySelectorAll("[data-folder-path]").length;
+    const counts = document.querySelector("[data-gallery-counts]");
+    if (counts) counts.textContent = `${folderCount} 個資料夾 · ${photoCount} 個媒體`;
+    const live = document.querySelector("#folder-area");
+    if (pending && folderCount === 0) return true;
+    const existing = new Map();
+    live?.querySelectorAll("[data-folder-path]").forEach((card) => existing.set(card.dataset.folderPath, card));
+    const added = [];
+    incoming.querySelectorAll("[data-folder-path]").forEach((card) => {
+      const kept = existing.get(card.dataset.folderPath);
+      if (kept) {
+        card.replaceWith(kept);
+        return;
+      }
+      added.push(card);
+    });
+    if (live) live.replaceWith(incoming);
+    else document.querySelector("#thumbnail-area")?.prepend(incoming);
+    added.forEach((card) => {
+      window.htmx?.process(card);
+      prepareThumbnails(card);
+    });
+    if (pending) return true;
+    const banner = filterBanner();
+    const filterUrl = banner?.dataset.filterUrl;
+    banner?.remove();
+    if (folderCount === 0 && photoCount === 0 && filterUrl) {
+      window.htmx?.ajax("GET", filterUrl.replace("/gallery/filter?", "/gallery?"), { target: "#gallery-content" });
+    }
+    return false;
+  };
+
+  const startFilterPoll = () => {
+    filterPoll?.abort();
+    const panel = filterBanner();
+    const url = panel?.dataset.filterUrl;
+    if (!panel || !url) return;
+    const controller = new AbortController();
+    filterPoll = controller;
+    (async () => {
+      try {
+        while (!controller.signal.aborted && panel.isConnected) {
+          await waitForFilter(300, controller.signal);
+          if (controller.signal.aborted || !panel.isConnected) return;
+          const response = await fetch(url, { cache: "no-store", signal: controller.signal });
+          if (!response.ok) continue;
+          if (!applyFilterFragment(await response.text())) return;
+        }
+      } catch (error) {
+        if (error?.name === "AbortError") return;
+      }
+    })();
+  };
+
   const splitMediaGrids = (scope = document) => {
     scope.querySelectorAll?.("[data-photo-grid]:not([data-media-split])").forEach((grid) => {
       const section = grid.closest(".photo-section");
@@ -258,6 +336,7 @@
   if (savedTheme) root.dataset.theme = savedTheme;
   splitMediaGrids();
   prepareThumbnails();
+  startFilterPoll();
   connectThumbnailEvents();
   focusThumbnailQueue();
   window.setInterval(focusThumbnailQueue, thumbnailFocusInterval);
@@ -771,11 +850,15 @@
     lightboxDialog()?.querySelector("[data-lightbox-stage]")?.classList.remove("is-panning");
   });
 
-  document.addEventListener("htmx:beforeRequest", cancelThumbnailWork);
+  document.addEventListener("htmx:beforeRequest", () => {
+    filterPoll?.abort();
+    cancelThumbnailWork();
+  });
 
   document.addEventListener("htmx:afterSwap", (event) => {
     splitMediaGrids(event.target);
     prepareThumbnails(event.target);
+    startFilterPoll();
     focusThumbnailQueue();
     window.scrollTo({ top: 0, behavior: "smooth" });
   });

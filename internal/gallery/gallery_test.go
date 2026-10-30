@@ -276,6 +276,36 @@ func TestFindCoverFollowsInGallerySymlinkDirectory(t *testing.T) {
 	}
 }
 
+func TestBrowseFilteredReturnsPendingOnFirstScan(t *testing.T) {
+	root := t.TempDir()
+	mustMkdir(t, filepath.Join(root, "旅行", "日本"))
+	mustWrite(t, filepath.Join(root, "旅行", "日本", "京都.jpg"))
+	mustWrite(t, filepath.Join(root, "首頁.jpg"))
+	browser := NewBrowser(root)
+	first := browser.BrowseFiltered("", "", "", "image")
+	if !first.FilterPending {
+		t.Fatal("first filtered browse should return before the scan finishes")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	var ready PageData
+	for time.Now().Before(deadline) {
+		ready = browser.BrowseFiltered("", "", "", "image")
+		if !ready.FilterPending {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if ready.FilterPending {
+		t.Fatal("filtered browse stayed pending")
+	}
+	if len(ready.Directories) != 1 || ready.Directories[0].Name != "旅行" {
+		t.Fatalf("expected matching folder, got %#v", ready.Directories)
+	}
+	if len(ready.Photos) != 1 {
+		t.Fatalf("expected unfiltered photos in the current folder, got %#v", ready.Photos)
+	}
+}
+
 func TestOpenOnlyReturnsImagesInsideRoot(t *testing.T) {
 	root := t.TempDir()
 	mustWrite(t, filepath.Join(root, "photo.jpg"))
