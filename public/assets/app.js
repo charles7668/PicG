@@ -333,6 +333,8 @@
 
   const isGalleryNavigation = (node) => node?.closest?.("a.folder-card, nav.breadcrumbs a[hx-get]");
 
+  const navigatesCurrentPage = (event) => event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
+
   if (savedTheme) root.dataset.theme = savedTheme;
   splitMediaGrids();
   prepareThumbnails();
@@ -824,8 +826,14 @@
     setLightboxZoom(lightboxZoom * factor, event.clientX, event.clientY);
   }, { passive: false, capture: true });
 
+  document.addEventListener("click", (event) => {
+    if (!event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) return;
+    if (!isGalleryNavigation(event.target)) return;
+    event.stopPropagation();
+  }, true);
+
   document.addEventListener("pointerdown", (event) => {
-    if (isGalleryNavigation(event.target)) cancelThumbnailWork();
+    if (navigatesCurrentPage(event) && isGalleryNavigation(event.target)) cancelThumbnailWork();
     const dialog = lightboxDialog();
     if (!dialog?.open || lightboxZoom <= 1) return;
     if (!event.target.closest("[data-lightbox-image]")) return;

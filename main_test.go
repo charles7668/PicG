@@ -59,6 +59,8 @@ func TestRoutesBrowseAndServePictures(t *testing.T) {
 		{path: "/assets/app.js", status: http.StatusOK, want: "localStorage", contentType: "text/javascript"},
 		{path: "/assets/app.js", status: http.StatusOK, want: "picg-video-volume", contentType: "text/javascript"},
 		{path: "/assets/app.js", status: http.StatusOK, want: "cancelThumbnailWork", contentType: "text/javascript"},
+		{path: "/assets/app.js", status: http.StatusOK, want: "navigatesCurrentPage", contentType: "text/javascript"},
+		{path: "/assets/app.js", status: http.StatusOK, want: "event.stopPropagation()", contentType: "text/javascript"},
 		{path: "/assets/app.js", status: http.StatusOK, want: "EventSource", contentType: "text/javascript"},
 		{path: "/assets/app.js", status: http.StatusOK, want: "/thumbnail-events", contentType: "text/javascript"},
 		{path: "/assets/app.js", status: http.StatusOK, want: "BroadcastChannel", contentType: "text/javascript"},
