@@ -131,27 +131,35 @@ func (b *Browser) BrowseFiltered(rawPath, query, sortKey, mediaFilter string) Pa
 	data.ParentHref = galleryHref(parentPath(rel), "")
 	data.Breadcrumbs = breadcrumbs(rel)
 
-	info, err := os.Stat(b.root)
-	if err != nil || !info.IsDir() {
+	root, err := os.OpenRoot(b.root)
+	if err != nil {
 		data.Error = fmt.Sprintf("找不到圖片目錄 %s", b.root)
 		return data
 	}
+	defer root.Close()
 	data.RootAvailable = true
 
-	absolute := filepath.Join(b.root, filepath.FromSlash(rel))
-	if !isWithinRoot(b.root, absolute) {
-		data.Error = "無效的目錄路徑"
-		return data
-	}
-	entries, err := os.ReadDir(absolute)
+	dir, err := root.Open(rootName(rel))
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			data.Error = "找不到這個目錄"
 		} else {
-			data.Error = "無法讀取這個目錄"
+			data.Error = "無效的目錄路徑"
 		}
 		return data
 	}
+	defer dir.Close()
+	info, err := dir.Stat()
+	if err != nil || !info.IsDir() {
+		data.Error = "無效的目錄路徑"
+		return data
+	}
+	entries, err := dir.ReadDir(-1)
+	if err != nil {
+		data.Error = "無法讀取這個目錄"
+		return data
+	}
+	absolute := filepath.Join(b.root, filepath.FromSlash(rel))
 
 	needle := strings.ToLower(data.Query)
 	for _, entry := range entries {
@@ -456,22 +464,19 @@ func (b *Browser) ResolveMedia(rawPath string) (string, string, os.FileInfo, err
 	if err != nil || rel == "" || !isMedia(rel) {
 		return "", "", nil, ErrInvalidPath
 	}
-	absolute := filepath.Join(b.root, filepath.FromSlash(rel))
-	if !isWithinRoot(b.root, absolute) {
-		return "", "", nil, ErrInvalidPath
-	}
-	resolved, err := filepath.EvalSymlinks(absolute)
+	root, err := os.OpenRoot(b.root)
 	if err != nil {
 		return "", "", nil, err
 	}
-	info, err := os.Stat(resolved)
-	if err != nil || !info.Mode().IsRegular() {
-		if err != nil {
-			return "", "", nil, err
-		}
+	defer root.Close()
+	info, err := root.Stat(rootName(rel))
+	if err != nil {
+		return "", "", nil, err
+	}
+	if !info.Mode().IsRegular() {
 		return "", "", nil, ErrInvalidPath
 	}
-	return rel, resolved, info, nil
+	return rel, filepath.Join(b.root, filepath.FromSlash(rel)), info, nil
 }
 
 func (b *Browser) OpenCover(directory string) (*os.File, os.FileInfo, error) {
@@ -497,11 +502,26 @@ func (b *Browser) ResolveCover(directory string) (string, string, os.FileInfo, e
 
 func (b *Browser) findCover(directory string) (string, error) {
 	rel, err := cleanRelativePath(directory)
-	if err != nil || !isWithinRoot(b.root, filepath.Join(b.root, filepath.FromSlash(rel))) {
+	if err != nil {
 		return "", ErrInvalidPath
 	}
-	absolute := filepath.Join(b.root, filepath.FromSlash(rel))
-	entries, err := os.ReadDir(absolute)
+	root, err := os.OpenRoot(b.root)
+	if err != nil {
+		return "", err
+	}
+	defer root.Close()
+	name := rel
+	if name == "" {
+		name = "."
+	}
+	info, err := root.Stat(rootName(rel))
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() {
+		return "", ErrInvalidPath
+	}
+	entries, err := fs.ReadDir(root.FS(), name)
 	if err != nil {
 		return "", err
 	}
@@ -522,7 +542,7 @@ func (b *Browser) findCover(directory string) (string, error) {
 			directVideo = joinRelative(rel, entry.Name())
 		}
 	}
-	nestedImage, nestedVideo := b.walkCoverSubdirs(absolute, subdirs)
+	nestedImage, nestedVideo := walkCoverSubdirs(root, rel, subdirs)
 	if nestedImage != "" {
 		return nestedImage, nil
 	}
@@ -535,14 +555,15 @@ func (b *Browser) findCover(directory string) (string, error) {
 	return "", fs.ErrNotExist
 }
 
-func (b *Browser) walkCoverSubdirs(parent string, names []string) (string, string) {
+func walkCoverSubdirs(root *os.Root, rel string, names []string) (string, string) {
 	var imageCover, videoCover string
 	visited := 0
+	fsys := root.FS()
 	for _, name := range names {
 		if imageCover != "" {
 			break
 		}
-		_ = filepath.WalkDir(filepath.Join(parent, name), func(filePath string, entry fs.DirEntry, walkErr error) error {
+		_ = fs.WalkDir(fsys, joinRelative(rel, name), func(filePath string, entry fs.DirEntry, walkErr error) error {
 			if walkErr != nil {
 				return nil
 			}
@@ -559,17 +580,12 @@ func (b *Browser) walkCoverSubdirs(parent string, names []string) (string, strin
 			if entry.IsDir() {
 				return nil
 			}
-			rel, err := filepath.Rel(b.root, filePath)
-			if err != nil {
-				return nil
-			}
-			slash := filepath.ToSlash(rel)
 			if isImage(entry.Name()) {
-				imageCover = slash
+				imageCover = filePath
 				return fs.SkipAll
 			}
 			if videoCover == "" && isVideo(entry.Name()) {
-				videoCover = slash
+				videoCover = filePath
 			}
 			return nil
 		})
@@ -595,20 +611,11 @@ func cleanRelativePath(raw string) (string, error) {
 	return clean, nil
 }
 
-func isWithinRoot(root, target string) bool {
-	resolvedRoot, err := filepath.EvalSymlinks(root)
-	if err != nil {
-		return false
+func rootName(rel string) string {
+	if rel == "" {
+		return "."
 	}
-	resolvedTarget, err := filepath.EvalSymlinks(target)
-	if err != nil {
-		return false
-	}
-	relative, err := filepath.Rel(resolvedRoot, resolvedTarget)
-	if err != nil {
-		return false
-	}
-	return relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
+	return filepath.FromSlash(rel)
 }
 
 func isImage(name string) bool {

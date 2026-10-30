@@ -103,6 +103,20 @@ func TestFindCoverPrefersDirectVideoOverNestedVideo(t *testing.T) {
 	}
 }
 
+func TestFindCoverPicksLexicographicallyFirstDirectImage(t *testing.T) {
+	root := t.TempDir()
+	mustMkdir(t, filepath.Join(root, "album"))
+	mustWrite(t, filepath.Join(root, "album", "z.jpg"))
+	mustWrite(t, filepath.Join(root, "album", "a.jpg"))
+	cover, err := NewBrowser(root).findCover("album")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cover != "album/a.jpg" {
+		t.Fatalf("expected first sorted direct image, got %q", cover)
+	}
+}
+
 func TestFindCoverPrefersDirectImageOverNestedImage(t *testing.T) {
 	root := t.TempDir()
 	mustMkdir(t, filepath.Join(root, "album", "nested"))
@@ -166,6 +180,73 @@ func TestBrowseRejectsSymlinkOutsideRoot(t *testing.T) {
 	data := NewBrowser(root).Browse("outside", "", "")
 	if data.Error == "" {
 		t.Fatal("expected external symlink to be rejected")
+	}
+}
+
+func TestResolveMediaFollowsInGallerySymlinks(t *testing.T) {
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, "photo.jpg"))
+	outside := t.TempDir()
+	mustWrite(t, filepath.Join(outside, "secret.jpg"))
+	if err := os.Symlink("photo.jpg", filepath.Join(root, "link.jpg")); err != nil {
+		t.Skipf("symlinks are unavailable: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(outside, "secret.jpg"), filepath.Join(root, "escape.jpg")); err != nil {
+		t.Fatal(err)
+	}
+	browser := NewBrowser(root)
+	rel, absolute, info, err := browser.ResolveMedia("photo.jpg")
+	if err != nil {
+		t.Fatalf("resolve photo: %v", err)
+	}
+	if rel != "photo.jpg" || info == nil || !info.Mode().IsRegular() || absolute != filepath.Join(root, "photo.jpg") {
+		t.Fatalf("rel=%q abs=%q", rel, absolute)
+	}
+	rel, absolute, info, err = browser.ResolveMedia("link.jpg")
+	if err != nil {
+		t.Fatalf("resolve in-gallery symlink: %v", err)
+	}
+	if rel != "link.jpg" || info == nil || !info.Mode().IsRegular() || absolute != filepath.Join(root, "link.jpg") {
+		t.Fatalf("link rel=%q abs=%q", rel, absolute)
+	}
+	file, _, err := browser.Open("link.jpg")
+	if err != nil {
+		t.Fatalf("open in-gallery symlink: %v", err)
+	}
+	file.Close()
+	if _, _, _, err := browser.ResolveMedia("escape.jpg"); err == nil {
+		t.Fatal("expected escaping symlink media to be rejected")
+	}
+	if _, _, err := browser.Open("escape.jpg"); err == nil {
+		t.Fatal("expected escaping symlink open to be rejected")
+	}
+}
+
+func TestFindCoverFollowsInGallerySymlinkDirectory(t *testing.T) {
+	root := t.TempDir()
+	mustMkdir(t, filepath.Join(root, "album"))
+	mustWrite(t, filepath.Join(root, "album", "photo.jpg"))
+	outside := t.TempDir()
+	mustWrite(t, filepath.Join(outside, "secret.jpg"))
+	if err := os.Symlink("album", filepath.Join(root, "alias")); err != nil {
+		t.Skipf("symlinks are unavailable: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "outside")); err != nil {
+		t.Fatal(err)
+	}
+	cover, err := NewBrowser(root).findCover("alias")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cover != "alias/photo.jpg" {
+		t.Fatalf("expected cover through in-gallery symlink dir, got %q", cover)
+	}
+	data := NewBrowser(root).Browse("alias", "", "")
+	if data.Error != "" || len(data.Photos) != 1 || data.Photos[0].Name != "photo" {
+		t.Fatalf("expected browse through in-gallery symlink dir, got error %q photos %#v", data.Error, data.Photos)
+	}
+	if _, err := NewBrowser(root).findCover("outside"); err == nil {
+		t.Fatal("expected escaping symlink directory cover to be rejected")
 	}
 }
 
