@@ -26,6 +26,8 @@ var videoExtensions = map[string]struct{}{
 
 type Browser struct {
 	root       string
+	rootMu     sync.Mutex
+	rootFS     *os.Root
 	mediaMu    sync.Mutex
 	mediaCache map[mediaCacheKey]mediaCacheEntry
 	mediaScan  map[mediaCacheKey]struct{}
@@ -116,6 +118,20 @@ func (b *Browser) Root() string {
 	return b.root
 }
 
+func (b *Browser) openRoot() (*os.Root, error) {
+	b.rootMu.Lock()
+	defer b.rootMu.Unlock()
+	if b.rootFS != nil {
+		return b.rootFS, nil
+	}
+	root, err := os.OpenRoot(b.root)
+	if err != nil {
+		return nil, err
+	}
+	b.rootFS = root
+	return root, nil
+}
+
 func (b *Browser) Browse(rawPath, query, sortKey string) PageData {
 	return b.BrowseFiltered(rawPath, query, sortKey, "all")
 }
@@ -133,12 +149,11 @@ func (b *Browser) BrowseFiltered(rawPath, query, sortKey, mediaFilter string) Pa
 	data.ParentHref = galleryHref(parentPath(rel), "")
 	data.Breadcrumbs = breadcrumbs(rel)
 
-	root, err := os.OpenRoot(b.root)
+	root, err := b.openRoot()
 	if err != nil {
 		data.Error = fmt.Sprintf("找不到圖片目錄 %s", b.root)
 		return data
 	}
-	defer root.Close()
 	data.RootAvailable = true
 
 	dir, err := root.Open(rootName(rel))
@@ -415,11 +430,10 @@ func (b *Browser) Open(rawPath string) (*os.File, os.FileInfo, error) {
 	if err != nil || rel == "" || !isMedia(rel) {
 		return nil, nil, ErrInvalidPath
 	}
-	root, err := os.OpenRoot(b.root)
+	root, err := b.openRoot()
 	if err != nil {
 		return nil, nil, err
 	}
-	defer root.Close()
 	file, err := root.Open(filepath.FromSlash(rel))
 	if err != nil {
 		return nil, nil, err
@@ -466,11 +480,10 @@ func (b *Browser) ResolveMedia(rawPath string) (string, string, os.FileInfo, err
 	if err != nil || rel == "" || !isMedia(rel) {
 		return "", "", nil, ErrInvalidPath
 	}
-	root, err := os.OpenRoot(b.root)
+	root, err := b.openRoot()
 	if err != nil {
 		return "", "", nil, err
 	}
-	defer root.Close()
 	info, err := root.Stat(rootName(rel))
 	if err != nil {
 		return "", "", nil, err
@@ -507,11 +520,10 @@ func (b *Browser) findCover(directory string) (string, error) {
 	if err != nil {
 		return "", ErrInvalidPath
 	}
-	root, err := os.OpenRoot(b.root)
+	root, err := b.openRoot()
 	if err != nil {
 		return "", err
 	}
-	defer root.Close()
 	name := rel
 	if name == "" {
 		name = "."

@@ -8,6 +8,32 @@ import (
 	"time"
 )
 
+func TestBrowserReusesOpenRoot(t *testing.T) {
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, "photo.jpg"))
+	browser := NewBrowser(root)
+	if _, _, err := browser.Open("photo.jpg"); err != nil {
+		t.Fatal(err)
+	}
+	kept := browser.rootFS
+	if kept == nil {
+		t.Fatal("expected OpenRoot to be kept")
+	}
+	data := browser.Browse("", "", "")
+	if data.Error != "" {
+		t.Fatal(data.Error)
+	}
+	if _, _, _, err := browser.ResolveMedia("photo.jpg"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := browser.findCover(""); err != nil {
+		t.Fatal(err)
+	}
+	if browser.rootFS != kept {
+		t.Fatal("gallery root was opened again")
+	}
+}
+
 func TestBrowseUsesDirectoryStructure(t *testing.T) {
 	root := t.TempDir()
 	mustMkdir(t, filepath.Join(root, "旅行", "日本"))
