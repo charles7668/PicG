@@ -257,8 +257,8 @@ func (s *Store) Lookup(ctx context.Context, request Request) (string, bool, erro
 	return output, true, nil
 }
 
-// CachedFile returns a persisted JPEG when the mapping and file exist. When
-// matchStamp is true, the stored source size and mtime must match.
+// CachedFile returns a persisted JPEG when the mapping is still usable.
+// Stamp, cover source, and JPEG checks live in usableMapping.
 func (s *Store) CachedFile(ctx context.Context, kind, identity string, mtimeNS, size int64, matchStamp bool) (string, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return "", false, err
@@ -271,15 +271,10 @@ func (s *Store) CachedFile(ctx context.Context, kind, identity string, mtimeNS, 
 	if err != nil || !found {
 		return "", false, err
 	}
-	if matchStamp && (item.SourceSize != size || item.SourceMTimeNS != mtimeNS) {
+	if !s.usableMapping(item, Presence{Kind: kind, Identity: identity, MTimeNS: mtimeNS, Size: size, MatchStamp: matchStamp}) {
 		return "", false, nil
 	}
-	output := filepath.Join(s.dir, item.FileName)
-	info, err := os.Stat(output)
-	if err != nil || !info.Mode().IsRegular() || info.Size() == 0 {
-		return "", false, nil
-	}
-	return output, true, nil
+	return filepath.Join(s.dir, item.FileName), true, nil
 }
 
 type Presence struct {
@@ -301,7 +296,7 @@ func PresenceID(kind, identity string) string {
 const presenceQueryChunk = 400
 
 // Present reports which identities already have a usable JPEG. One SQL query
-// per chunk; stamp matching follows CachedFile (covers skip the URL stamp).
+// per chunk. Usability is usableMapping, the same check CachedFile uses.
 func (s *Store) Present(ctx context.Context, items []Presence) (map[string]bool, error) {
 	found := make(map[string]bool, len(items))
 	if err := ctx.Err(); err != nil {
@@ -379,8 +374,16 @@ func (s *Store) usableMapping(item mapping, query Presence) bool {
 	if query.MatchStamp && (item.SourceSize != query.Size || item.SourceMTimeNS != query.MTimeNS) {
 		return false
 	}
+	if query.Kind == "cover" && !sourceFileUsable(item.SourceFilePath) {
+		return false
+	}
 	output := filepath.Join(s.dir, item.FileName)
 	info, err := os.Stat(output)
+	return err == nil && info.Mode().IsRegular() && info.Size() > 0
+}
+
+func sourceFileUsable(path string) bool {
+	info, err := os.Stat(path)
 	return err == nil && info.Mode().IsRegular() && info.Size() > 0
 }
 

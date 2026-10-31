@@ -218,6 +218,70 @@ func TestPresentReportsCachedIdentities(t *testing.T) {
 	}
 }
 
+func TestCoverMissesWhenSourceFileIsGone(t *testing.T) {
+	work := t.TempDir()
+	db, err := database.Open(filepath.Join(work, "app.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store, err := NewStore(db, filepath.Join(work, "thumbnails"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(work, "first.jpg")
+	if err := os.WriteFile(source, []byte("first"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.GetOrCreate(context.Background(), Request{
+		Kind: "cover", Identity: "album", SourcePath: source, Info: info,
+	}, writeThumbnail("cover")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(source); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ok, err := store.CachedFile(context.Background(), "cover", "album", 0, 0, false); err != nil || ok {
+		t.Fatalf("cover of a deleted source should miss, ok=%v err=%v", ok, err)
+	}
+	present, err := store.Present(context.Background(), []Presence{{Kind: "cover", Identity: "album"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if present[PresenceID("cover", "album")] {
+		t.Fatal("listing should not treat the old cover as cached")
+	}
+
+	next := filepath.Join(work, "second.jpg")
+	if err := os.WriteFile(next, []byte("second"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	nextInfo, err := os.Stat(next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered := false
+	if _, err := store.GetOrCreate(context.Background(), Request{
+		Kind: "cover", Identity: "album", SourcePath: next, Info: nextInfo,
+	}, func(output string) error {
+		rendered = true
+		return writeThumbnail("next")(output)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !rendered {
+		t.Fatal("cover should be redrawn from the remaining image")
+	}
+	if _, ok, err := store.CachedFile(context.Background(), "cover", "album", 0, 0, false); err != nil || !ok {
+		t.Fatalf("redrawn cover should be cached, ok=%v err=%v", ok, err)
+	}
+}
+
 func TestCacheReadsDoNotRequireDatabase(t *testing.T) {
 	work := t.TempDir()
 	db, err := database.Open(filepath.Join(work, "app.sqlite"))
