@@ -69,6 +69,8 @@ func TestRoutesBrowseAndServePictures(t *testing.T) {
 		{path: "/assets/app.js", status: http.StatusOK, want: "thumbnailFocusInterval", contentType: "text/javascript"},
 		{path: "/assets/app.js", status: http.StatusOK, want: "maxThumbnailRequests", contentType: "text/javascript"},
 		{path: "/assets/app.js", status: http.StatusOK, want: "thumbnailCached", contentType: "text/javascript"},
+		{path: "/assets/app.js", status: http.StatusOK, want: "resumeThumbnails", contentType: "text/javascript"},
+		{path: "/assets/app.js", status: http.StatusOK, want: "thumbnailRequest", contentType: "text/javascript"},
 		{path: "/assets/app.js", status: http.StatusOK, want: "X-Video-Direct", contentType: "text/javascript"},
 		{path: "/assets/app.js", status: http.StatusOK, want: "startFilterPoll", contentType: "text/javascript"},
 		{path: "/assets/app.js", status: http.StatusOK, want: "applyFilterFragment", contentType: "text/javascript"},

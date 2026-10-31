@@ -67,20 +67,64 @@
       if (image.complete && image.naturalWidth > 0) continue;
       const base = thumbnailSrc(image).replace(/&retry=\d+$/, "");
       if (!base) continue;
+      const requestId = String(Number(image.dataset.thumbnailRequest || "0") + 1);
+      image.dataset.thumbnailRequest = requestId;
       image.dataset.thumbnailInFlight = "true";
       thumbnailInFlight += 1;
       image.dataset.thumbnailRetry = "";
       let url = base;
       if (image.getAttribute("src")) url = base + "&retry=" + Date.now();
+      bindThumbnailRequest(image, requestId);
       image.src = url;
     }
   };
 
-  const releaseThumbnail = (image) => {
+  const releaseThumbnail = (image, requestId) => {
     if (image?.dataset?.thumbnailInFlight !== "true") return;
+    if (requestId != null && image.dataset.thumbnailRequest !== requestId) return;
     image.dataset.thumbnailInFlight = "";
     thumbnailInFlight = Math.max(0, thumbnailInFlight - 1);
     pumpThumbnails();
+  };
+
+  const bindThumbnailRequest = (image, requestId) => {
+    const finish = (event) => {
+      image.removeEventListener("load", finish);
+      image.removeEventListener("error", finish);
+      if (image.dataset.thumbnailRequest !== requestId) return;
+      if (event.type === "load") {
+        image.dataset.thumbnailReady = "";
+        image.classList.add("is-loaded");
+        releaseThumbnail(image, requestId);
+        return;
+      }
+      if (image.dataset.thumbnailAborted === "true") return;
+      const url = image.getAttribute("src");
+      if (!url) return;
+      rememberThumbnailUrl(image, url);
+      const ready = image.dataset.thumbnailReady === "true";
+      image.dataset.thumbnailReady = "";
+      releaseThumbnail(image, requestId);
+      if (ready) {
+        scheduleThumbnail(image, { retry: true, prepend: true });
+        return;
+      }
+      if (window.EventSource) return;
+      const tries = Number(image.dataset.thumbnailTries || "0");
+      if (tries >= maxThumbnailTries) {
+        if (image.matches("[data-folder-cover]") || image.dataset.mediaThumbnail === "video") image.hidden = true;
+        return;
+      }
+      image.dataset.thumbnailTries = String(tries + 1);
+      const epoch = thumbnailEpoch;
+      window.setTimeout(() => {
+        if (epoch !== thumbnailEpoch || !image.isConnected || image.dataset.thumbnailAborted === "true") return;
+        if (image.dataset.thumbnailRequest !== requestId) return;
+        scheduleThumbnail(image, { retry: true });
+      }, thumbnailRetryDelay);
+    };
+    image.addEventListener("load", finish);
+    image.addEventListener("error", finish);
   };
 
   const applyThumbnailEvent = (data) => {
@@ -115,6 +159,20 @@
     document.querySelectorAll("img[data-thumbnail]").forEach((image) => {
       if (image.dataset.thumbnailAborted === "true") return;
       if (image.complete && image.naturalWidth > 0) return;
+      scheduleThumbnail(image, { retry: true, prepend: true });
+    });
+  };
+
+  // Hidden tabs can drop the fetches that still hold a slot. Invalidate those
+  // requests so a late error or load cannot release the replacement, then
+  // queue only those images again.
+  const resumeThumbnails = () => {
+    document.querySelectorAll("img[data-thumbnail]").forEach((image) => {
+      if (image.dataset.thumbnailInFlight !== "true") return;
+      if (image.complete && image.naturalWidth > 0) return;
+      image.dataset.thumbnailRequest = String(Number(image.dataset.thumbnailRequest || "0") + 1);
+      image.dataset.thumbnailInFlight = "";
+      thumbnailInFlight = Math.max(0, thumbnailInFlight - 1);
       scheduleThumbnail(image, { retry: true, prepend: true });
     });
   };
@@ -325,6 +383,7 @@
     document.querySelectorAll("img[data-thumbnail]").forEach((image) => {
       if (image.complete && image.naturalWidth > 0) return;
       image.dataset.thumbnailAborted = "true";
+      image.dataset.thumbnailRequest = String(Number(image.dataset.thumbnailRequest || "0") + 1);
       image.dataset.thumbnailInFlight = "";
       image.dataset.thumbnailReady = "";
       image.removeAttribute("src");
@@ -753,42 +812,6 @@
     }
   });
 
-  document.addEventListener("error", (event) => {
-    const image = event.target;
-    if (!image?.matches?.("img[data-thumbnail]")) return;
-    if (image.dataset.thumbnailAborted === "true") return;
-    const url = image.getAttribute("src");
-    if (!url) return;
-    rememberThumbnailUrl(image, url);
-    const ready = image.dataset.thumbnailReady === "true";
-    image.dataset.thumbnailReady = "";
-    releaseThumbnail(image);
-    if (ready) {
-      scheduleThumbnail(image, { retry: true, prepend: true });
-      return;
-    }
-    if (window.EventSource) return;
-    const tries = Number(image.dataset.thumbnailTries || "0");
-    if (tries >= maxThumbnailTries) {
-      if (image.matches("[data-folder-cover]") || image.dataset.mediaThumbnail === "video") image.hidden = true;
-      return;
-    }
-    image.dataset.thumbnailTries = String(tries + 1);
-    const epoch = thumbnailEpoch;
-    window.setTimeout(() => {
-      if (epoch !== thumbnailEpoch || !image.isConnected || image.dataset.thumbnailAborted === "true") return;
-      scheduleThumbnail(image, { retry: true });
-    }, thumbnailRetryDelay);
-  }, true);
-
-  document.addEventListener("load", (event) => {
-    const image = event.target;
-    if (!image?.matches?.("img[data-thumbnail]")) return;
-    image.dataset.thumbnailReady = "";
-    image.classList.add("is-loaded");
-    releaseThumbnail(image);
-  }, true);
-
   document.addEventListener("volumechange", (event) => {
     if (!event.target.matches?.("[data-lightbox-video]")) return;
     persistVideoVolume(event.target);
@@ -874,6 +897,7 @@
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) return;
     focusThumbnailQueue();
+    resumeThumbnails();
     prepareThumbnails();
   });
 })();
