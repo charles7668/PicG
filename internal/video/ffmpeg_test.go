@@ -20,10 +20,7 @@ func TestStatusReportsMissingBinary(t *testing.T) {
 func TestDirectMP4RequiresH264(t *testing.T) {
 	parsed := probeOutput{}
 	parsed.Format.FormatName = "mov,mp4,m4a,3gp,3g2,mj2"
-	parsed.Streams = []struct {
-		CodecName string `json:"codec_name"`
-		CodecType string `json:"codec_type"`
-	}{
+	parsed.Streams = []probeStream{
 		{CodecName: "h264", CodecType: "video"},
 		{CodecName: "aac", CodecType: "audio"},
 	}
@@ -41,6 +38,55 @@ func TestDirectMP4RequiresH264(t *testing.T) {
 	parsed.Format.FormatName = "matroska,webm"
 	if directMP4(parsed) {
 		t.Fatal("mkv should transcode")
+	}
+}
+
+func TestLongestDurationPrefersStreams(t *testing.T) {
+	parsed := probeOutput{}
+	parsed.Format.Duration = "N/A"
+	parsed.Streams = []probeStream{
+		{CodecType: "video", Duration: "60.050000"},
+		{CodecType: "audio", Duration: "59.900000"},
+	}
+	if got := longestDuration(parsed); got != 60.05 {
+		t.Fatalf("duration = %v, want 60.05", got)
+	}
+	parsed.Format.Duration = "75.5"
+	if got := longestDuration(parsed); got != 75.5 {
+		t.Fatalf("duration = %v, want 75.5", got)
+	}
+}
+
+func TestParseFFmpegInfoFallsBackToFFmpegOutput(t *testing.T) {
+	output := `Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'clip.mp4':
+  Duration: 00:01:00.05, start: 0.000000, bitrate: 1200 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p, 1920x1080
+  Stream #0:1[0x2](und): Audio: aac (LC) (mp4a / 0x6134706D), 44100 Hz, stereo
+`
+	info, ok := parseFFmpegInfo(output)
+	if !ok {
+		t.Fatal("expected metadata to parse")
+	}
+	if info.Duration != 60.05 || !info.Direct {
+		t.Fatalf("info = %#v, want 60.05 and direct", info)
+	}
+}
+
+func TestParseFFmpegInfoHandlesUnsupportedCodecs(t *testing.T) {
+	output := `Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'clip.mp4':
+  Duration: 00:00:12.00, start: 0.000000, bitrate: 900 kb/s
+  Stream #0:0[0x1](und): Video: hevc (Main), yuv420p, 1920x1080
+  Stream #0:1[0x2](und): Audio: aac (LC), 44100 Hz, stereo
+`
+	info, ok := parseFFmpegInfo(output)
+	if !ok {
+		t.Fatal("expected metadata to parse")
+	}
+	if info.Duration != 12 || info.Direct {
+		t.Fatalf("info = %#v, want 12s and transcoding", info)
+	}
+	if _, ok := parseFFmpegInfo("Duration: N/A, start: 0.000000"); ok {
+		t.Fatal("expected N/A duration to be rejected")
 	}
 }
 

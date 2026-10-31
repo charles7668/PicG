@@ -75,6 +75,7 @@ func TestRoutesBrowseAndServePictures(t *testing.T) {
 		{path: "/assets/app.js", status: http.StatusOK, want: "resumeThumbnails", contentType: "text/javascript"},
 		{path: "/assets/app.js", status: http.StatusOK, want: "thumbnailRequest", contentType: "text/javascript"},
 		{path: "/assets/app.js", status: http.StatusOK, want: "X-Video-Direct", contentType: "text/javascript"},
+		{path: "/assets/app.js", status: http.StatusOK, want: "syncVideoDuration", contentType: "text/javascript"},
 		{path: "/assets/app.js", status: http.StatusOK, want: "startFilterPoll", contentType: "text/javascript"},
 		{path: "/assets/app.js", status: http.StatusOK, want: "compositionstart", contentType: "text/javascript"},
 		{path: "/", status: http.StatusOK, want: "dataset.composing", contentType: "text/html"},

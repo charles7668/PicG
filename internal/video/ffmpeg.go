@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -76,39 +78,86 @@ type Info struct {
 	Direct   bool
 }
 
+type probeStream struct {
+	CodecName string `json:"codec_name"`
+	CodecType string `json:"codec_type"`
+	Duration  string `json:"duration"`
+}
+
 type probeOutput struct {
-	Streams []struct {
-		CodecName string `json:"codec_name"`
-		CodecType string `json:"codec_type"`
-	} `json:"streams"`
-	Format struct {
+	Streams []probeStream `json:"streams"`
+	Format  struct {
 		Duration   string `json:"duration"`
 		FormatName string `json:"format_name"`
 	} `json:"format"`
 }
 
+var (
+	ffmpegDurationPattern = regexp.MustCompile(`Duration:\s*(\d+):(\d{2}):(\d{2}(?:\.\d+)?)`)
+	ffmpegInputPattern    = regexp.MustCompile(`Input #0,\s*(.+?),\s*from`)
+	ffmpegVideoPattern    = regexp.MustCompile(`Video:\s*([A-Za-z0-9_]+)`)
+	ffmpegAudioPattern    = regexp.MustCompile(`Audio:\s*([A-Za-z0-9_]+)`)
+)
+
+// Probe reports the container duration and whether the browser can play the
+// file without transcoding. ffprobe is preferred, but it is not always
+// installed next to ffmpeg and it reports "N/A" for some fragmented MP4 files,
+// so ffmpeg's own metadata output is used as a fallback.
 func (f *FFmpeg) Probe(ctx context.Context, input string) (Info, error) {
 	probeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	output, err := exec.CommandContext(probeCtx, f.ffprobePath(),
+	output, probeErr := exec.CommandContext(probeCtx, f.ffprobePath(),
 		"-v", "error",
 		"-show_entries", "format=duration,format_name",
-		"-show_entries", "stream=codec_type,codec_name",
+		"-show_entries", "stream=codec_type,codec_name,duration",
 		"-of", "json",
 		input,
 	).Output()
-	if err != nil {
-		return Info{}, fmt.Errorf("ffprobe: %w", err)
+	if probeErr == nil {
+		var parsed probeOutput
+		if err := json.Unmarshal(output, &parsed); err == nil {
+			info := Info{Duration: longestDuration(parsed), Direct: directMP4(parsed)}
+			if info.Duration > 0 || info.Direct {
+				return info, nil
+			}
+		}
 	}
-	var parsed probeOutput
-	if err := json.Unmarshal(output, &parsed); err != nil {
-		return Info{}, fmt.Errorf("ffprobe: %w", err)
+	return f.probeWithFFmpeg(ctx, input, probeErr)
+}
+
+// probeWithFFmpeg reads the metadata ffmpeg prints for its input. FFmpeg exits
+// with an error when no output is requested, which is expected here.
+func (f *FFmpeg) probeWithFFmpeg(ctx context.Context, input string, probeErr error) (Info, error) {
+	runCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	output, _ := exec.CommandContext(runCtx, f.path(), "-hide_banner", "-nostdin", "-i", input).CombinedOutput()
+	if info, ok := parseFFmpegInfo(string(output)); ok {
+		return info, nil
 	}
-	duration, err := strconv.ParseFloat(strings.TrimSpace(parsed.Format.Duration), 64)
-	if err != nil || duration <= 0 {
-		return Info{}, fmt.Errorf("ffprobe duration: invalid value %q", strings.TrimSpace(parsed.Format.Duration))
+	if probeErr != nil {
+		return Info{}, fmt.Errorf("ffprobe: %w", probeErr)
 	}
-	return Info{Duration: duration, Direct: directMP4(parsed)}, nil
+	return Info{}, errors.New("ffprobe: no duration reported")
+}
+
+func parseDurationText(value string) float64 {
+	seconds, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+	if err != nil || seconds <= 0 || math.IsNaN(seconds) || math.IsInf(seconds, 0) {
+		return 0
+	}
+	return seconds
+}
+
+// longestDuration picks the longest duration reported for the file. Some
+// fragmented MP4 files only carry the real duration on their streams.
+func longestDuration(parsed probeOutput) float64 {
+	longest := parseDurationText(parsed.Format.Duration)
+	for _, stream := range parsed.Streams {
+		if duration := parseDurationText(stream.Duration); duration > longest {
+			longest = duration
+		}
+	}
+	return longest
 }
 
 func directMP4(parsed probeOutput) bool {
@@ -130,6 +179,46 @@ func directMP4(parsed probeOutput) bool {
 		}
 	}
 	return hasVideo
+}
+
+// parseFFmpegInfo extracts the duration and codecs from `ffmpeg -i` output.
+func parseFFmpegInfo(output string) (Info, bool) {
+	matches := ffmpegDurationPattern.FindStringSubmatch(output)
+	if matches == nil {
+		return Info{}, false
+	}
+	hours, _ := strconv.ParseFloat(matches[1], 64)
+	minutes, _ := strconv.ParseFloat(matches[2], 64)
+	seconds, err := strconv.ParseFloat(matches[3], 64)
+	if err != nil {
+		return Info{}, false
+	}
+	duration := hours*3600 + minutes*60 + seconds
+	if duration <= 0 {
+		return Info{}, false
+	}
+	formatName := "mp4"
+	if input := ffmpegInputPattern.FindStringSubmatch(output); input != nil {
+		formatName = strings.TrimSpace(input[1])
+	}
+	direct := strings.Contains(formatName, "mp4")
+	hasVideo := false
+	for _, line := range strings.Split(output, "\n") {
+		if strings.Contains(line, "attached pic") {
+			continue
+		}
+		if video := ffmpegVideoPattern.FindStringSubmatch(line); video != nil {
+			if video[1] != "h264" {
+				direct = false
+				continue
+			}
+			hasVideo = true
+		}
+		if audio := ffmpegAudioPattern.FindStringSubmatch(line); audio != nil && audio[1] != "aac" {
+			direct = false
+		}
+	}
+	return Info{Duration: duration, Direct: direct && hasVideo}, true
 }
 
 func (f *FFmpeg) ffprobePath() string {

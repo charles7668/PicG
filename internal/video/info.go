@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"sync"
 	"time"
@@ -78,7 +79,8 @@ func (s *InfoStore) Get(ctx context.Context, identity, filePath string, file os.
 		return finish(Info{}, err)
 	}
 	if err := s.save(ctx, identity, filePath, size, mtimeNS, info); err != nil {
-		return finish(Info{}, err)
+		// The cache is best effort: losing a write must not cost playback.
+		log.Printf("video info cache %q: %v", identity, err)
 	}
 	return finish(info, nil)
 }

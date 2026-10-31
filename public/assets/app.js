@@ -476,6 +476,53 @@
     await updateVideoBuffer(sourceBuffer, () => sourceBuffer.remove(start, end));
   };
 
+  const bufferedVideoEnd = (stream) => {
+    const ranges = stream.sourceBuffer?.buffered;
+    if (!ranges || ranges.length === 0) return 0;
+    return ranges.end(ranges.length - 1);
+  };
+
+  // Fragmented MP4 streams carry no total duration, so browsers report only
+  // what has been buffered so far. Keep the media duration at the probed value
+  // and grow it when buffered data proves the probe was missing or too short.
+  const syncVideoDuration = (stream) => {
+    const { mediaSource } = stream;
+    if (!mediaSource || mediaSource.readyState === "closed") return;
+    const known = stream.duration > 0 ? stream.duration : 0;
+    const buffered = bufferedVideoEnd(stream);
+    const target = known > 0 && buffered <= known + 0.5 ? known : Math.max(known, buffered);
+    if (!(target > 0)) return;
+    const current = mediaSource.duration;
+    if (Number.isFinite(current) && current >= target - 0.05) return;
+    try {
+      mediaSource.duration = target;
+    } catch {
+      // The MediaSource can close while the lightbox switches media.
+    }
+  };
+
+  const waitForSourceBufferIdle = (sourceBuffer) => new Promise((resolve) => {
+    if (!sourceBuffer.updating) {
+      resolve();
+      return;
+    }
+    const finish = () => {
+      sourceBuffer.removeEventListener("updateend", finish);
+      sourceBuffer.removeEventListener("abort", finish);
+      resolve();
+    };
+    sourceBuffer.addEventListener("updateend", finish, { once: true });
+    sourceBuffer.addEventListener("abort", finish, { once: true });
+    window.setTimeout(finish, 1000);
+  });
+
+  const setVideoTimestampOffset = async (sourceBuffer, offset) => {
+    for (let attempt = 0; attempt < 5 && sourceBuffer.updating; attempt += 1) {
+      await waitForSourceBufferIdle(sourceBuffer);
+    }
+    sourceBuffer.timestampOffset = offset;
+  };
+
   const videoStreamURL = (src, start) => {
     const streamURL = new URL(src, window.location.href);
     if (start > 0) streamURL.searchParams.set("start", String(start));
@@ -490,28 +537,31 @@
     if (!response.ok || !response.body) throw new Error(`video stream returned ${response.status}`);
     if (lightboxVideoStreams.get(video) !== stream || generation !== stream.generation) return;
     const duration = Number(response.headers.get("X-Video-Duration"));
-    if (Number.isFinite(duration) && duration > 0) {
-      stream.duration = duration;
-      stream.mediaSource.duration = duration;
-    }
-    stream.sourceBuffer.timestampOffset = start;
+    if (Number.isFinite(duration) && duration > 0) stream.duration = duration;
+    syncVideoDuration(stream);
+    await setVideoTimestampOffset(stream.sourceBuffer, start);
     const reader = response.body.getReader();
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
       if (lightboxVideoStreams.get(video) !== stream || generation !== stream.generation) return;
       await appendVideoChunk(stream.sourceBuffer, value);
+      syncVideoDuration(stream);
       await trimVideoBuffer(stream.sourceBuffer, video.currentTime);
     }
     if (lightboxVideoStreams.get(video) === stream && generation === stream.generation && stream.mediaSource.readyState === "open" && !stream.sourceBuffer.updating) {
+      syncVideoDuration(stream);
       stream.mediaSource.endOfStream();
     }
   };
 
   const streamVideo = async (video, src, autoplay = true) => {
     stopVideoElement(video);
+    let knownDuration = 0;
     try {
       const inspect = await fetch(src, { method: "HEAD", cache: "no-store" });
+      const reported = Number(inspect.headers.get("X-Video-Duration"));
+      if (Number.isFinite(reported) && reported > 0) knownDuration = reported;
       if (inspect.ok && inspect.headers.get("X-Video-Direct") === "1") {
         assignVideoSrc(video, src);
         if (autoplay) await video.play();
@@ -527,7 +577,7 @@
 
     const mediaSource = new MediaSource();
     const objectURL = URL.createObjectURL(mediaSource);
-    const stream = { abort: null, generation: 0, mediaSource, objectURL, sourceBuffer: null, src, stopped: false };
+    const stream = { abort: null, duration: knownDuration, generation: 0, mediaSource, objectURL, sourceBuffer: null, src, stopped: false };
     lightboxVideoStreams.set(video, stream);
     assignVideoSrc(video, objectURL);
     if (autoplay) void video.play().catch(() => {});
@@ -546,13 +596,13 @@
     });
     if (stream.stopped || lightboxVideoStreams.get(video) !== stream) return;
     stream.sourceBuffer = sourceBuffer;
+    syncVideoDuration(stream);
     await pumpVideoStream(video, stream, 0);
   };
 
   const seekVideoStream = async (video, stream, start, autoplay) => {
     stream.abort?.abort();
     stream.generation += 1;
-    if (stream.mediaSource.readyState === "ended" && stream.duration) stream.mediaSource.duration = stream.duration;
     if (stream.mediaSource.readyState === "open") stream.sourceBuffer.abort();
     if (autoplay) void video.play().catch(() => {});
     await pumpVideoStream(video, stream, start);

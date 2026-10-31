@@ -216,10 +216,12 @@ func routesWithStorage(root, databasePath, thumbnailDir string, cleanupWhenIdle 
 			start = 0
 		}
 		if infoErr == nil {
-			if start >= info.Duration {
+			if info.Duration > 0 && start >= info.Duration {
 				start = 0
 			}
-			w.Header().Set("X-Video-Duration", strconv.FormatFloat(info.Duration, 'f', 3, 64))
+			if info.Duration > 0 {
+				w.Header().Set("X-Video-Duration", strconv.FormatFloat(info.Duration, 'f', 3, 64))
+			}
 			if info.Direct {
 				w.Header().Set("X-Video-Direct", "1")
 			}
