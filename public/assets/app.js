@@ -414,9 +414,7 @@
   const lightboxZoomMin = 1;
   const lightboxZoomMax = 5;
   let lightboxRequest = 0;
-  let ignoreVideoVolume = false;
   let videoVolumeAssignment = 0;
-  let videoVolumeGestureUntil = 0;
   let lightboxZoom = 1;
   let lightboxPanX = 0;
   let lightboxPanY = 0;
@@ -431,7 +429,7 @@
     lightboxVideoStreams.delete(video);
     video.pause();
     videoVolumeAssignment += 1;
-    ignoreVideoVolume = true;
+    // After the src is removed getAttribute("src") is null, so the volumechange handler skips it.
     video.removeAttribute("src");
     video.load();
     if (stream?.objectURL) URL.revokeObjectURL(stream.objectURL);
@@ -681,28 +679,21 @@
     const nextVolume = Math.min(1, Math.max(0, volume));
     const nextMuted = mutedText === "1";
     if (video.volume === nextVolume && video.muted === nextMuted) return;
-    const previous = ignoreVideoVolume;
-    ignoreVideoVolume = true;
     video.volume = nextVolume;
     video.muted = nextMuted;
-    ignoreVideoVolume = previous;
   };
 
   const assignVideoSrc = (video, src) => {
     const assignment = ++videoVolumeAssignment;
-    ignoreVideoVolume = true;
     const restore = () => {
       video.removeEventListener("loadedmetadata", restore);
       video.removeEventListener("error", fail);
       if (assignment !== videoVolumeAssignment) return;
       applySavedVideoVolume(video);
-      ignoreVideoVolume = false;
     };
     const fail = () => {
       video.removeEventListener("loadedmetadata", restore);
       video.removeEventListener("error", fail);
-      if (assignment !== videoVolumeAssignment) return;
-      ignoreVideoVolume = false;
     };
     video.addEventListener("loadedmetadata", restore);
     video.addEventListener("error", fail);
@@ -712,7 +703,7 @@
   };
 
   const persistVideoVolume = (video) => {
-    if (ignoreVideoVolume || !video.getAttribute("src")) return;
+    if (!video.getAttribute("src")) return;
     const next = `${video.volume},${video.muted ? "1" : "0"}`;
     if (localStorage.getItem(videoVolumeKey) === next) return;
     localStorage.setItem(videoVolumeKey, next);
@@ -851,29 +842,11 @@
     }
   });
 
-  document.addEventListener("pointerdown", (event) => {
-    if (event.target.closest?.("[data-lightbox-video]")) videoVolumeGestureUntil = Number.POSITIVE_INFINITY;
-  }, true);
-
-  const endVideoVolumeGesture = () => {
-    if (videoVolumeGestureUntil === Number.POSITIVE_INFINITY) videoVolumeGestureUntil = Date.now() + 300;
-  };
-
-  document.addEventListener("pointerup", endVideoVolumeGesture, true);
-  document.addEventListener("pointercancel", endVideoVolumeGesture, true);
-
-  document.addEventListener("keydown", (event) => {
-    if (event.target.closest?.("[data-lightbox-video]")) videoVolumeGestureUntil = Date.now() + 300;
-  }, true);
-
+  // Any user volume change (native controls, tab mute, media keys, ...) wins:
+  // persist it, never revert it. Saved volume is only applied once when a video loads.
   document.addEventListener("volumechange", (event) => {
     const video = event.target;
     if (!video.matches?.("[data-lightbox-video]")) return;
-    if (ignoreVideoVolume || !video.getAttribute("src")) return;
-    if (Date.now() > videoVolumeGestureUntil) {
-      applySavedVideoVolume(video);
-      return;
-    }
     persistVideoVolume(video);
   }, true);
 

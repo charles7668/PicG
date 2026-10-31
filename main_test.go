@@ -60,7 +60,7 @@ func TestRoutesBrowseAndServePictures(t *testing.T) {
 		{path: "/assets/app.js", status: http.StatusOK, want: "picg-video-volume", contentType: "text/javascript"},
 		{path: "/assets/app.js", status: http.StatusOK, want: "assignVideoSrc", contentType: "text/javascript"},
 		{path: "/assets/app.js", status: http.StatusOK, want: "videoVolumeAssignment", contentType: "text/javascript"},
-		{path: "/assets/app.js", status: http.StatusOK, want: "videoVolumeGesture", contentType: "text/javascript"},
+		{path: "/assets/app.js", status: http.StatusOK, want: "persistVideoVolume", contentType: "text/javascript"},
 		{path: "/assets/app.js", status: http.StatusOK, want: "cancelThumbnailWork", contentType: "text/javascript"},
 		{path: "/assets/app.js", status: http.StatusOK, want: "navigatesCurrentPage", contentType: "text/javascript"},
 		{path: "/assets/app.js", status: http.StatusOK, want: "event.stopPropagation()", contentType: "text/javascript"},
