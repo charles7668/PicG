@@ -2,7 +2,6 @@
   const root = document.documentElement;
   const savedTheme = localStorage.getItem("picg-theme");
   const videoVolumeKey = "picg-video-volume";
-  const videoMutedKey = "picg-video-muted";
 
   let thumbnailEpoch = 0;
   const maxThumbnailTries = 60;
@@ -415,6 +414,9 @@
   const lightboxZoomMin = 1;
   const lightboxZoomMax = 5;
   let lightboxRequest = 0;
+  let ignoreVideoVolume = false;
+  let videoVolumeAssignment = 0;
+  let videoVolumeGestureUntil = 0;
   let lightboxZoom = 1;
   let lightboxPanX = 0;
   let lightboxPanY = 0;
@@ -428,6 +430,8 @@
     stream?.abort?.abort();
     lightboxVideoStreams.delete(video);
     video.pause();
+    videoVolumeAssignment += 1;
+    ignoreVideoVolume = true;
     video.removeAttribute("src");
     video.load();
     if (stream?.objectURL) URL.revokeObjectURL(stream.objectURL);
@@ -511,14 +515,14 @@
     try {
       const inspect = await fetch(src, { method: "HEAD", cache: "no-store" });
       if (inspect.ok && inspect.headers.get("X-Video-Direct") === "1") {
-        video.src = src;
+        assignVideoSrc(video, src);
         if (autoplay) await video.play();
         return;
       }
     } catch {
     }
     if (!window.MediaSource || !MediaSource.isTypeSupported(streamMimeType)) {
-      video.src = videoStreamURL(src, 0);
+      assignVideoSrc(video, videoStreamURL(src, 0));
       if (autoplay) await video.play();
       return;
     }
@@ -527,7 +531,7 @@
     const objectURL = URL.createObjectURL(mediaSource);
     const stream = { abort: null, generation: 0, mediaSource, objectURL, sourceBuffer: null, src, stopped: false };
     lightboxVideoStreams.set(video, stream);
-    video.src = objectURL;
+    assignVideoSrc(video, objectURL);
     if (autoplay) void video.play().catch(() => {});
     const sourceBuffer = await new Promise((resolve, reject) => {
       const fail = () => reject(new DOMException("video stream closed", "AbortError"));
@@ -669,14 +673,49 @@
   };
 
   const applySavedVideoVolume = (video) => {
-    const savedVolume = Number(localStorage.getItem(videoVolumeKey));
-    if (Number.isFinite(savedVolume)) video.volume = Math.min(1, Math.max(0, savedVolume));
-    video.muted = localStorage.getItem(videoMutedKey) === "1";
+    const raw = localStorage.getItem(videoVolumeKey);
+    if (!raw || !video) return;
+    const [volumeText, mutedText] = raw.split(",");
+    const volume = Number(volumeText);
+    if (!Number.isFinite(volume)) return;
+    const nextVolume = Math.min(1, Math.max(0, volume));
+    const nextMuted = mutedText === "1";
+    if (video.volume === nextVolume && video.muted === nextMuted) return;
+    const previous = ignoreVideoVolume;
+    ignoreVideoVolume = true;
+    video.volume = nextVolume;
+    video.muted = nextMuted;
+    ignoreVideoVolume = previous;
+  };
+
+  const assignVideoSrc = (video, src) => {
+    const assignment = ++videoVolumeAssignment;
+    ignoreVideoVolume = true;
+    const restore = () => {
+      video.removeEventListener("loadedmetadata", restore);
+      video.removeEventListener("error", fail);
+      if (assignment !== videoVolumeAssignment) return;
+      applySavedVideoVolume(video);
+      ignoreVideoVolume = false;
+    };
+    const fail = () => {
+      video.removeEventListener("loadedmetadata", restore);
+      video.removeEventListener("error", fail);
+      if (assignment !== videoVolumeAssignment) return;
+      ignoreVideoVolume = false;
+    };
+    video.addEventListener("loadedmetadata", restore);
+    video.addEventListener("error", fail);
+    video.src = src;
+    if (assignment !== videoVolumeAssignment) return;
+    applySavedVideoVolume(video);
   };
 
   const persistVideoVolume = (video) => {
-    localStorage.setItem(videoVolumeKey, String(video.volume));
-    localStorage.setItem(videoMutedKey, video.muted ? "1" : "0");
+    if (ignoreVideoVolume || !video.getAttribute("src")) return;
+    const next = `${video.volume},${video.muted ? "1" : "0"}`;
+    if (localStorage.getItem(videoVolumeKey) === next) return;
+    localStorage.setItem(videoVolumeKey, next);
   };
 
   const paintLightbox = (dialog, photo, image, video) => {
@@ -812,9 +851,30 @@
     }
   });
 
+  document.addEventListener("pointerdown", (event) => {
+    if (event.target.closest?.("[data-lightbox-video]")) videoVolumeGestureUntil = Number.POSITIVE_INFINITY;
+  }, true);
+
+  const endVideoVolumeGesture = () => {
+    if (videoVolumeGestureUntil === Number.POSITIVE_INFINITY) videoVolumeGestureUntil = Date.now() + 300;
+  };
+
+  document.addEventListener("pointerup", endVideoVolumeGesture, true);
+  document.addEventListener("pointercancel", endVideoVolumeGesture, true);
+
+  document.addEventListener("keydown", (event) => {
+    if (event.target.closest?.("[data-lightbox-video]")) videoVolumeGestureUntil = Date.now() + 300;
+  }, true);
+
   document.addEventListener("volumechange", (event) => {
-    if (!event.target.matches?.("[data-lightbox-video]")) return;
-    persistVideoVolume(event.target);
+    const video = event.target;
+    if (!video.matches?.("[data-lightbox-video]")) return;
+    if (ignoreVideoVolume || !video.getAttribute("src")) return;
+    if (Date.now() > videoVolumeGestureUntil) {
+      applySavedVideoVolume(video);
+      return;
+    }
+    persistVideoVolume(video);
   }, true);
 
   document.addEventListener("seeking", (event) => {
