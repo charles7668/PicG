@@ -941,7 +941,21 @@
     lightboxDialog()?.querySelector("[data-lightbox-stage]")?.classList.remove("is-panning");
   });
 
-  document.addEventListener("htmx:beforeRequest", () => {
+  const isSearchInput = (node) => node?.matches?.(".search-box input");
+
+  document.addEventListener("compositionstart", (event) => {
+    if (isSearchInput(event.target)) event.target.dataset.composing = "1";
+  }, true);
+
+  document.addEventListener("compositionend", (event) => {
+    if (isSearchInput(event.target)) delete event.target.dataset.composing;
+  }, true);
+
+  document.addEventListener("htmx:beforeRequest", (event) => {
+    if (event.detail?.elt?.dataset?.composing === "1") {
+      event.preventDefault();
+      return;
+    }
     filterPoll?.abort();
     cancelThumbnailWork();
   });

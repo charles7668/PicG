@@ -230,7 +230,7 @@ func GalleryContent(data gallery.PageData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "\" placeholder=\"搜尋目前目錄\" hx-get=\"/gallery\" hx-trigger=\"input changed delay:250ms, search\" hx-target=\"#gallery-content\" hx-include=\"#current-path, #gallery-sort, #gallery-media-filter\"></label> <label class=\"sort-box\"><select id=\"gallery-sort\" name=\"sort\" aria-label=\"排序\" hx-get=\"/gallery\" hx-trigger=\"change\" hx-target=\"#gallery-content\" hx-include=\"#current-path, .search-box input, #gallery-media-filter\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "\" placeholder=\"搜尋目前目錄\" hx-get=\"/gallery\" hx-trigger=\"input[event.target.dataset.composing!='1'] changed delay:250ms, search[event.target.dataset.composing!='1']\" hx-target=\"#gallery-content\" hx-include=\"#current-path, #gallery-sort, #gallery-media-filter\"></label> <label class=\"sort-box\"><select id=\"gallery-sort\" name=\"sort\" aria-label=\"排序\" hx-get=\"/gallery\" hx-trigger=\"change\" hx-target=\"#gallery-content\" hx-include=\"#current-path, .search-box input, #gallery-media-filter\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
